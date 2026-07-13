@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>공모주 운용사 펀드 관리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <style>
+        body { font-family: 'Pretendard', sans-serif; font-size: 14px; }
+        textarea { resize: vertical; tab-size: 4; outline: none; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-6">
+
+    <header class="mb-6 flex justify-between items-center bg-white p-4 rounded-2xl border shadow-sm">
+        <div class="flex items-center space-x-3">
+            <h1 class="text-2xl font-black tracking-tight text-gray-900 cursor-pointer" onclick="location.reload()">공모주 운용사 펀드 관리</h1>
+            <span id="headerUserBadge" class="bg-blue-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-sm">로딩중...</span>
+        </div>
+        <div class="flex items-center space-x-2">
+            <input type="password" id="newPasswordInput" placeholder="새 비밀번호" class="p-2 border-2 border-gray-200 rounded-xl text-sm w-36">
+            <button onclick="changePassword()" class="bg-gray-800 text-white px-3 py-2 rounded-xl font-bold text-sm">비밀번호 변경</button>
+            <button onclick="handleLogout()" class="text-gray-400 text-sm pl-2">로그아웃</button>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border shadow-sm">
+                <h2 class="font-black mb-6 text-gray-900 text-base">1. 신규 펀드 생성</h2>
+                <div class="space-y-4">
+                    <div class="grid grid-cols-5 items-center gap-2">
+                        <label class="col-span-2 text-xs font-bold text-gray-600">펀드명</label>
+                        <input type="text" id="fundName" class="col-span-3 p-2 border-2 rounded-lg text-sm">
+                    </div>
+                    <div class="grid grid-cols-5 items-center gap-2">
+                        <label class="col-span-2 text-xs font-bold text-gray-600">금액(억, 당행분만)</label>
+                        <input type="number" id="fundSize" class="col-span-3 p-2 border-2 rounded-lg text-sm">
+                    </div>
+                    <div class="grid grid-cols-5 items-center gap-2">
+                        <label class="col-span-2 text-xs font-bold text-gray-600">당행 지분율(%)</label>
+                        <input type="number" id="equityRate" class="col-span-3 p-2 border-2 rounded-lg text-sm">
+                    </div>
+                    <button onclick="createNewFund()" class="w-full bg-black text-white font-black py-3 rounded-xl text-base mt-4">펀드 개설</button>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border shadow-sm">
+                <h2 class="font-black mb-4 text-gray-900 text-base">기존 펀드 리스트</h2>
+                <ul id="fundList" class="space-y-3 divide-y text-base"></ul>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2 space-y-6">
+            <div class="bg-white p-6 rounded-2xl border shadow-sm">
+                <h2 class="font-black mb-4 text-gray-900 text-base">2. 주식명세 입력(당행분만) <span id="currentFundTitle" class="text-blue-600 ml-2"></span></h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <textarea id="mainFundTextarea" oninput="processData()" class="p-3 border-2 border-blue-200 rounded-xl h-40 text-sm" placeholder="[본펀드] 종목코드 종목명 보유수량 단가 금액"></textarea>
+                    <textarea id="subFundTextarea" oninput="processData()" class="p-3 border-2 border-emerald-200 rounded-xl h-40 text-sm" placeholder="[하위펀드] 종목코드 종목명 보유수량 단가 금액"></textarea>
+                </div>
+                <div class="mt-4 flex justify-end items-center p-4 bg-gray-50 border rounded-xl">
+                    <button onclick="saveAssetSpecs()" class="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl text-xs shadow-sm hover:bg-blue-700 transition-all">주식명세 저장하기</button>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl border shadow-sm">
+                <h3 class="text-sm font-bold text-blue-600 mb-2">📊 본펀드 주식 현황</h3>
+                <table class="w-full text-center border text-xs"><thead class="bg-gray-50 font-bold"><tr><th class="p-2 border">종목코드</th><th class="p-2 border">종목명</th><th class="p-2 border">보유수량</th><th class="p-2 border">단가</th><th class="p-2 border">금액</th></tr></thead><tbody id="mainFundTableBody"></tbody></table>
+                
+                <h3 class="text-sm font-bold text-emerald-600 mt-6 mb-2">📊 하위펀드 주식 현황</h3>
+                <table class="w-full text-center border text-xs"><thead class="bg-gray-50 font-bold"><tr><th class="p-2 border">종목코드</th><th class="p-2 border">종목명</th><th class="p-2 border">보유수량</th><th class="p-2 border">단가</th><th class="p-2 border">금액</th></tr></thead><tbody id="subFundTableBody"></tbody></table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://hnxvsopwxiamexnxczhj.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_1_9-bKTcV3sBQkv10ru__w_iW-51pKt';
+        let loginId = localStorage.getItem('login_id') || 'vi';
+        let userCompany = ''; 
+        const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" };
+
+        // 콤마(,) 구분 완전 배제, 오직 탭(\t) 및 공백으로 열 파싱 구현
+        function parseLine(line) {
+            const parts = line.trim().split(/[\t ]+/); 
+            if (parts.length < 5) return null;
+            
+            const qty = Number(parts[2].replace(/,/g, ''));
+            const price = Number(parts[3].replace(/,/g, ''));
+            const amt = Number(parts[4].replace(/,/g, ''));
+            
+            return { code: parts[0], name: parts[1], qty, price, amt };
+        }
+
+        async function processData() {
+            const calc = (taId, bodyId) => {
+                const lines = document.getElementById(taId).value.split('\n');
+                let html = '', totalAmt = 0;
+                
+                lines.forEach(l => {
+                    const d = parseLine(l);
+                    if(d) {
+                        totalAmt += d.amt;
+                        html += `<tr class="border-b"><td>${d.code}</td><td>${d.name}</td><td>${d.qty.toLocaleString()}</td><td>${d.price.toLocaleString()}</td><td>${d.amt.toLocaleString()}</td></tr>`;
+                    }
+                });
+                
+                if(html.length > 0) {
+                    html += `<tr class="bg-gray-100 font-bold"><td colspan="4">합계금액</td><td>${totalAmt.toLocaleString()}</td></tr>`;
+                }
+                document.getElementById(bodyId).innerHTML = html;
+            };
+
+            calc('mainFundTextarea', 'mainFundTableBody'); 
+            calc('subFundTextarea', 'subFundTableBody');
+        }
+
+        async function initPage() {
+            // 변경 매핑 완료: repo_ 가 아닌 ipo_users 로 조회 연동
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_users?user_id=eq.${loginId}`, { headers });
+            const data = await res.json();
+            if(data.length > 0) {
+                userCompany = data[0].company_name || '공모주 운용사 미등록';
+                document.getElementById('headerUserBadge').innerText = `${userCompany}(${loginId})`;
+            }
+            refreshFundList();
+        }
+
+        async function refreshFundList() {
+            // 변경 매핑 완료: repo_ 가 아닌 ipo_funds 로 조회 연동
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds?user_id=eq.${loginId}`, { headers });
+            const data = await res.json();
+            document.getElementById('fundList').innerHTML = data.map(item => `
+                <li class="flex justify-between items-center py-2">
+                    <span class="cursor-pointer hover:text-blue-600 font-bold" onclick="loadFund('${item.fund_name}')">${item.fund_name}</span>
+                    <button onclick="deleteFund('${item.fund_name}')" class="text-xs bg-red-100 text-red-600 px-2 py-1 rounded">삭제</button>
+                </li>`).join('');
+        }
+
+        async function deleteFund(name) {
+            if(!confirm(`'${name}' 펀드를 삭제하시겠습니까?`)) return;
+            await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets?fund_name=eq.${encodeURIComponent(name)}`, { method: 'DELETE', headers });
+            await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds?fund_name=eq.${encodeURIComponent(name)}`, { method: 'DELETE', headers });
+            alert("삭제되었습니다.");
+            refreshFundList();
+        }
+
+        async function loadFund(name) {
+            document.getElementById('currentFundTitle').innerText = `[${name}]`;
+            // 변경 매핑 완료: ipo_funds 호출
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds?fund_name=eq.${encodeURIComponent(name)}`, { headers });
+            const data = await res.json();
+            if(!data.length) return;
+            const f = data[0];
+            document.getElementById('fundName').value = f.fund_name;
+            document.getElementById('fundSize').value = f.fund_size;
+            document.getElementById('equityRate').value = f.equity_rate;
+            
+            // 변경 매핑 완료: ipo_assets 호출
+            const aRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets?fund_name=eq.${encodeURIComponent(name)}`, { headers });
+            const assets = await aRes.json();
+            
+            document.getElementById('mainFundTextarea').value = assets.filter(a => a.fund_type === '본펀드').map(a => `${a.asset_code} ${a.asset_name} ${a.quantity} ${a.purchase_price} ${a.purchase_amount}`).join('\n');
+            document.getElementById('subFundTextarea').value = assets.filter(a => a.fund_type === '하위펀드').map(a => `${a.asset_code} ${a.asset_name} ${a.quantity} ${a.purchase_price} ${a.purchase_amount}`).join('\n');
+            processData();
+        }
+
+        async function createNewFund() {
+            const payload = { 
+                user_id: loginId, 
+                company: userCompany, 
+                fund_name: document.getElementById('fundName').value, 
+                fund_size: Number(document.getElementById('fundSize').value), 
+                equity_rate: Number(document.getElementById('equityRate').value)
+            };
+            // 변경 매핑 완료: ipo_funds 사용
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds`, { method: 'POST', headers, body: JSON.stringify(payload) });
+            if(res.ok) { refreshFundList(); alert("개설 완료"); }
+            else { const err = await res.json(); alert("생성 실패: " + err.message); }
+        }
+
+        async function saveAssetSpecs() {
+            const fundName = document.getElementById('fundName').value;
+            const fundSize = Number(document.getElementById('fundSize').value);
+            const equityRate = Number(document.getElementById('equityRate').value);
+
+            if(!fundName) return alert("펀드를 선택하거나 입력해주세요.");
+            
+            // 변경 매핑 완료: ipo_funds 및 ipo_assets 테이블 동기화 변경
+            await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds?fund_name=eq.${encodeURIComponent(fundName)}`, { method: 'PATCH', headers, body: JSON.stringify({ fund_size: fundSize, equity_rate: equityRate }) });
+            await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets?fund_name=eq.${encodeURIComponent(fundName)}`, { method: 'DELETE', headers });
+            
+            let assetsToSave = [];
+            const save = (id, type) => document.getElementById(id).value.split('\n').forEach(l => { 
+                const d = parseLine(l); 
+                if(d) {
+                    assetsToSave.push({
+                        user_id: loginId, 
+                        company: userCompany, 
+                        fund_name: fundName, 
+                        fund_type: type, 
+                        asset_code: d.code,
+                        asset_name: d.name, 
+                        quantity: d.qty,
+                        purchase_price: d.price, 
+                        purchase_amount: d.amt 
+                    });
+                }
+            });
+            
+            save('mainFundTextarea', '본펀드'); 
+            save('subFundTextarea', '하위펀드');
+            
+            if(assetsToSave.length > 0) {
+                // 변경 매핑 완료: ipo_assets 반영
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { method: 'POST', headers, body: JSON.stringify(assetsToSave) });
+                if(res.ok) {
+                    alert("저장 성공");
+                } else {
+                    const errData = await res.json();
+                    alert("DB 저장 오류: " + errData.message);
+                }
+            } else {
+                alert("입력란에 유효한 주식 데이터가 존재하지 않습니다.");
+            }
+        }
+
+        async function changePassword() {
+            const newPw = document.getElementById('newPasswordInput').value;
+            // 변경 매핑 완료: ipo_users 패스워드 변경 처리
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_users?user_id=eq.${loginId}`, { method: 'PATCH', headers, body: JSON.stringify({ user_pw: newPw }) });
+            if(res.ok) alert("비밀번호 변경 성공!");
+        }
+
+        function handleLogout() { localStorage.clear(); window.location.href = 'index.html'; }
+        window.onload = initPage;
+    </script>
+</body>
+</html>
