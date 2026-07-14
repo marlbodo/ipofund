@@ -47,7 +47,7 @@
             </div>
             <div class="flex items-center space-x-2 border-r pr-6 border-blue-200">
                 <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded">주식 합계 금액</span>
-                <h2 class="text-lg font-black text-blue-900" id="grandTotalAmount">0백만원</h2>
+                <h2 class="text-lg font-black text-blue-900" id="grandTotalAmount">0원</h2>
             </div>
             <div class="flex items-center space-x-2">
                 <span class="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded">전체 주식 비중</span>
@@ -74,7 +74,7 @@
                             <th class="num">펀드금액 (억원)</th>
                             <th class="num">지분율</th>
                             <th class="num">주식수</th>
-                            <th class="num">주식금액 (백만원)</th>
+                            <th class="num">주식금액 (원)</th>
                             <th class="num">주식비중</th>
                         </tr>
                     </thead>
@@ -94,7 +94,7 @@
             <div class="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border text-[11px]">
                 <div><span class="text-gray-500">펀드금액:</span> <span class="font-bold text-slate-800" id="infoFundSize">0억원</span></div>
                 <div><span class="text-gray-500">지분율:</span> <span class="font-bold text-slate-800" id="infoEquityRate">0%</span></div>
-                <div><span class="text-gray-500">금액합계:</span> <span class="font-bold text-blue-600" id="infoTotalAmt">0백만원</span></div>
+                <div><span class="text-gray-500">금액합계:</span> <span class="font-bold text-blue-600" id="infoTotalAmt">0원</span></div>
                 <div><span class="text-gray-500">주식비중:</span> <span class="font-bold text-emerald-600" id="infoStockRate">0.00%</span></div>
             </div>
 
@@ -105,7 +105,7 @@
                             <th>종목명</th>
                             <th class="num">보유수량</th>
                             <th class="num">종가</th>
-                            <th class="num">금액 (백만원)</th>
+                            <th class="num">금액 (원)</th>
                         </tr>
                     </thead>
                     <tbody id="detailContentBody"></tbody>
@@ -146,7 +146,7 @@
         // 펀드명 기준 집계 연산 로직 변경
         function calculateFundAggregation() {
             const fundMap = {};
-            let totalGrandAmtInMillion = 0;
+            let totalGrandAmt = 0;
             let totalGrandFundSize = 0;
 
             // 1. ipo_funds 매핑 (펀드명 고유 키 설정)
@@ -195,22 +195,21 @@
 
             // 3. 단위 변환 및 비중 계산 (소수점 2자리)
             aggregatedFunds.forEach(f => {
-                f.total_amt_million = Math.round(f.total_amt / 1000000);
-                totalGrandAmtInMillion += f.total_amt_million;
+                totalGrandAmt += f.total_amt;
                 totalGrandFundSize += f.fund_size;
 
-                const fundSizeInMillion = f.fund_size * 100;
-                f.stock_rate = fundSizeInMillion > 0 ? ((f.total_amt_million / fundSizeInMillion) * 100).toFixed(2) : "0.00";
+                const fundSizeInWon = f.fund_size * 100000000;
+                f.stock_rate = fundSizeInWon > 0 ? ((f.total_amt / fundSizeInWon) * 100).toFixed(2) : "0.00";
             });
 
             // 주식금액 기준 내림차순 정렬
-            aggregatedFunds.sort((a, b) => b.total_amt_million - a.total_amt_million);
+            aggregatedFunds.sort((a, b) => b.total_amt - a.total_amt);
 
             // 4. 상단 대시보드 반영
             document.getElementById('grandTotalFundSize').innerText = Math.round(totalGrandFundSize).toLocaleString() + " 억원";
-            document.getElementById('grandTotalAmount').innerText = totalGrandAmtInMillion.toLocaleString() + " 백만원";
+            document.getElementById('grandTotalAmount').innerText = Math.round(totalGrandAmt).toLocaleString() + " 원";
             
-            const overallStockRate = (totalGrandFundSize * 100) > 0 ? ((totalGrandAmtInMillion / (totalGrandFundSize * 100)) * 100).toFixed(2) : "0.00";
+            const overallStockRate = (totalGrandFundSize * 100000000) > 0 ? ((totalGrandAmt / (totalGrandFundSize * 100000000)) * 100).toFixed(2) : "0.00";
             document.getElementById('grandTotalStockRate').innerText = overallStockRate + "%";
 
             // 총 펀드 개수 표기
@@ -230,133 +229,4 @@
                 const escapedFund = encodeURIComponent(f.fund_name);
 
                 return `
-                    <tr class="clickable border-b text-slate-700" onclick="showFundDetail('${escapedFund}')">
-                        <td class="text-center font-bold text-gray-400">${index + 1}</td>
-                        <td class="text-gray-500">${f.company_name}</td>
-                        <td class="font-medium text-blue-600">${f.fund_name}</td>
-                        <td class="num font-semibold text-slate-600">${Math.round(f.fund_size).toLocaleString()}</td>
-                        <td class="num text-gray-500">${Number(f.equity_rate).toFixed(2)}%</td>
-                        <td class="num text-slate-700">${Math.round(f.total_qty).toLocaleString()}</td>
-                        <td class="num font-bold text-slate-900">${f.total_amt_million.toLocaleString()}</td>
-                        <td class="num font-semibold text-emerald-600">${f.stock_rate}%</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function showFundDetail(escapedFund) {
-            const fundName = decodeURIComponent(escapedFund);
-            const target = aggregatedFunds.find(f => f.fund_name === fundName);
-
-            if(!target) return;
-
-            // 요약 우측 카드 정보 반영
-            document.getElementById('detailTitle').innerText = `📊 [${fundName}] 보유 종목 상세`;
-            document.getElementById('infoFundSize').innerText = Math.round(target.fund_size).toLocaleString() + "억원";
-            document.getElementById('infoEquityRate').innerText = Number(target.equity_rate).toFixed(2) + "%";
-            document.getElementById('infoTotalAmt').innerText = target.total_amt_million.toLocaleString() + "백만원";
-            document.getElementById('infoStockRate').innerText = target.stock_rate + "%";
-
-            // 해당 펀드명으로 필터링
-            const filtered = globalRawAssets.filter(a => (a.fund_name || '미지정 펀드').trim() === fundName);
-            const detailTbody = document.getElementById('detailContentBody');
-            
-            let totalQty = 0;
-            let totalAmtMillion = 0;
-
-            let html = filtered.map(item => {
-                const name = (item.asset_name || '미지정 종목').trim();
-                const qty = Math.round(Number(item.quantity || 0));
-                const amtOriginal = Number(item.purchase_amount || 0);
-                const amtMillion = Math.round(amtOriginal / 1000000); 
-                const closePrice = qty > 0 ? Math.round(amtOriginal / qty) : 0; 
-
-                totalQty += qty;
-                totalAmtMillion += amtMillion;
-
-                return `
-                    <tr class="border-b text-xs">
-                        <td class="font-medium text-slate-800">${name}</td>
-                        <td class="num text-slate-600">${qty.toLocaleString()}</td>
-                        <td class="num text-gray-500">${closePrice.toLocaleString()}</td>
-                        <td class="num font-semibold text-slate-900">${amtMillion.toLocaleString()}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            if(html.length > 0) {
-                html += `
-                    <tr class="bg-slate-50 font-black text-slate-900">
-                        <td class="text-center">합계</td>
-                        <td class="num text-slate-700">${Math.round(totalQty).toLocaleString()}</td>
-                        <td class="num text-gray-400">-</td>
-                        <td class="num text-blue-600">${totalAmtMillion.toLocaleString()}</td>
-                    </tr>
-                `;
-            }
-
-            detailTbody.innerHTML = html;
-            document.getElementById('detailSection').classList.remove('hidden');
-        }
-
-        function closeDetail() {
-            document.getElementById('detailSection').classList.add('hidden');
-        }
-
-        function downloadExcel() {
-            if(aggregatedFunds.length === 0) return alert("다운로드할 데이터가 없습니다.");
-
-            let excelHtml = `
-                <meta charset="utf-8">
-                <table border="1">
-                    <thead>
-                        <tr style="background-color:#f1f5f9; font-weight:bold;">
-                            <th>No.</th>
-                            <th>운용사명</th>
-                            <th>펀드명</th>
-                            <th>펀드금액 (억원)</th>
-                            <th>지분율</th>
-                            <th>주식수</th>
-                            <th>주식금액 (백만원)</th>
-                            <th>주식비중</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            aggregatedFunds.forEach((f, index) => {
-                excelHtml += `
-                    <tr>
-                        <td>${index + 1}</td>
-                        <td>${f.company_name}</td>
-                        <td>${f.fund_name}</td>
-                        <td>${Math.round(f.fund_size)}</td>
-                        <td>${Number(f.equity_rate).toFixed(2)}%</td>
-                        <td>${Math.round(f.total_qty)}</td>
-                        <td>${f.total_amt_million}</td>
-                        <td>${f.stock_rate}%</td>
-                    </tr>
-                `;
-            });
-
-            excelHtml += `</tbody></table>`;
-
-            const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `공모주펀드_펀드별_보유내역_${new Date().toISOString().slice(0,10)}.xls`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
-
-        function handleLogout() {
-            localStorage.clear();
-            window.location.href = 'index.html';
-        }
-
-        window.onload = fetchDashboardData;
-    </script>
-</body>
-</html>
+                    <tr class="clickable border-b text-slate-700" onclick="show
