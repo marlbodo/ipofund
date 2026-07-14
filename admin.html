@@ -49,7 +49,6 @@
                 <table class="w-full text-left" id="stockMainTable">
                     <thead>
                         <tr>
-                            <th>종목코드</th>
                             <th>종목명</th>
                             <th class="num">보유수량</th>
                             <th class="num">전일종가</th>
@@ -57,7 +56,7 @@
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
-                        <tr><td colspan="5" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
+                        <tr><td colspan="4" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -103,29 +102,27 @@
                 calculateStockAggregation();
             } catch (err) {
                 console.error(err);
-                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="5" class="text-center text-red-500 font-bold py-4">데이터 로딩에 실패했습니다.</td></tr>`;
+                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="4" class="text-center text-red-500 font-bold py-4">데이터 로딩에 실패했습니다.</td></tr>`;
             }
         }
 
-        // 종목 집계 연산 로직 (소수점 반올림 적용)
+        // 종목 집계 연산 로직 (종목명 기준 그룹화 및 소수점 반올림 정수화)
         function calculateStockAggregation() {
             const stockMap = {};
             let grandTotal = 0;
 
             globalRawAssets.forEach(asset => {
-                const code = (asset.asset_code || '').trim();
                 const name = (asset.asset_name || '미지정 종목').trim();
-                // 원본 데이터가 소수점일 경우를 대비해 반올림 처리
                 const qty = Math.round(Number(asset.quantity || 0));
                 const amt = Math.round(Number(asset.purchase_amount || 0));
 
                 grandTotal += amt;
 
-                const groupKey = `${code}_${name}`;
+                // 종목명 단일 식별자로 그룹화
+                const groupKey = name;
 
                 if (!stockMap[groupKey]) {
                     stockMap[groupKey] = {
-                        asset_code: code || '-',
                         asset_name: name,
                         total_qty: 0,
                         total_amt: 0
@@ -137,7 +134,7 @@
 
             aggregatedStocks = Object.values(stockMap);
 
-            // 금액 내림차순 정렬 기본 보장
+            // 합산 금액(total_amt) 내림차순 정렬 보장
             aggregatedStocks.sort((a, b) => b.total_amt - a.total_amt);
 
             // 상단 토탈금액 반영 (반올림 정수)
@@ -149,20 +146,17 @@
         function renderMainTable() {
             const tbody = document.getElementById('stockTableBody');
             if (aggregatedStocks.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 py-4">등록된 주식 명세 데이터가 존재하지 않습니다.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 py-4">등록된 주식 명세 데이터가 존재하지 않습니다.</td></tr>`;
                 return;
             }
 
             tbody.innerHTML = aggregatedStocks.map(stock => {
-                // 평균값 매수단가 계산 후 정수 반올림 (화면 표시: 전일종가)
+                // 평균값 계산 후 정수 반올림
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
-
-                const escapedCode = encodeURIComponent(stock.asset_code);
                 const escapedName = encodeURIComponent(stock.asset_name);
 
                 return `
-                    <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedCode}', '${escapedName}')">
-                        <td class="font-bold text-blue-600">${stock.asset_code}</td>
+                    <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedName}')">
                         <td class="font-medium">${stock.asset_name}</td>
                         <td class="num font-semibold">${Math.round(stock.total_qty).toLocaleString()}</td>
                         <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
@@ -172,16 +166,15 @@
             }).join('');
         }
 
-        function showStockDetail(escapedCode, escapedName) {
-            const code = decodeURIComponent(escapedCode);
+        function showStockDetail(escapedName) {
             const name = decodeURIComponent(escapedName);
             
             document.getElementById('detailTitle').innerText = `📊 [${name}] 펀드별 보유 현황`;
             
+            // 종목명 기준으로 필터링 매칭 진행
             const filtered = globalRawAssets.filter(a => {
-                const c = (a.asset_code || '').trim();
                 const n = (a.asset_name || '미지정 종목').trim();
-                return (c === code || (!code && c === '-')) && n === name;
+                return n === name;
             });
             
             const detailTbody = document.getElementById('detailContentBody');
@@ -231,7 +224,6 @@
                 <table border="1">
                     <thead>
                         <tr style="background-color:#f1f5f9; font-weight:bold;">
-                            <th>종목코드</th>
                             <th>종목명</th>
                             <th>보유수량</th>
                             <th>전일종가</th>
@@ -245,7 +237,6 @@
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
                 excelHtml += `
                     <tr>
-                        <td style="mso-number-format:'\\@';">${stock.asset_code}</td>
                         <td>${stock.asset_name}</td>
                         <td>${Math.round(stock.total_qty)}</td>
                         <td>${avgPrice}</td>
