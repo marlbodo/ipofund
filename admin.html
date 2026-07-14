@@ -51,9 +51,9 @@
                         <tr>
                             <th>종목코드</th>
                             <th>종목명</th>
-                            <th class="num">보유수량 총합계</th>
-                            <th class="num">매수단가 (평균)</th>
-                            <th class="num">금액 총합계</th>
+                            <th class="num">보유수량</th>
+                            <th class="num">종가</th>
+                            <th class="num">금액</th>
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
@@ -107,7 +107,7 @@
             }
         }
 
-        // 종목 집계 연산 로직 수정 (종목코드 + 종목명 복합 식별 그룹화)
+        // 종목 집계 연산 로직 (소수점 반올림 적용)
         function calculateStockAggregation() {
             const stockMap = {};
             let grandTotal = 0;
@@ -115,12 +115,12 @@
             globalRawAssets.forEach(asset => {
                 const code = (asset.asset_code || '').trim();
                 const name = (asset.asset_name || '미지정 종목').trim();
-                const qty = Number(asset.quantity || 0);
-                const amt = Number(asset.purchase_amount || 0);
+                // 원본 데이터가 소수점일 경우를 대비해 반올림 처리
+                const qty = Math.round(Number(asset.quantity || 0));
+                const amt = Math.round(Number(asset.purchase_amount || 0));
 
                 grandTotal += amt;
 
-                // 코드와 명이 결합된 고유 고 식별자 생성하여 누락 방지
                 const groupKey = `${code}_${name}`;
 
                 if (!stockMap[groupKey]) {
@@ -140,8 +140,8 @@
             // 금액 내림차순 정렬 기본 보장
             aggregatedStocks.sort((a, b) => b.total_amt - a.total_amt);
 
-            // 상단 토탈금액 반영
-            document.getElementById('grandTotalAmount').innerText = grandTotal.toLocaleString() + " 원";
+            // 상단 토탈금액 반영 (반올림 정수)
+            document.getElementById('grandTotalAmount').innerText = Math.round(grandTotal).toLocaleString() + " 원";
 
             renderMainTable();
         }
@@ -154,9 +154,9 @@
             }
 
             tbody.innerHTML = aggregatedStocks.map(stock => {
+                // 평균값 매수단가 계산 후 정수 반올림 (화면 표시: 전일종가)
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
 
-                // 특수문자나 공백이 섞여도 정상 함수 호출이 가능하도록 인자 이스케이프 처리
                 const escapedCode = encodeURIComponent(stock.asset_code);
                 const escapedName = encodeURIComponent(stock.asset_name);
 
@@ -164,9 +164,9 @@
                     <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedCode}', '${escapedName}')">
                         <td class="font-bold text-blue-600">${stock.asset_code}</td>
                         <td class="font-medium">${stock.asset_name}</td>
-                        <td class="num font-semibold">${stock.total_qty.toLocaleString()}</td>
+                        <td class="num font-semibold">${Math.round(stock.total_qty).toLocaleString()}</td>
                         <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
-                        <td class="num font-bold text-slate-900">${stock.total_amt.toLocaleString()}</td>
+                        <td class="num font-bold text-slate-900">${Math.round(stock.total_amt).toLocaleString()}</td>
                     </tr>
                 `;
             }).join('');
@@ -178,7 +178,6 @@
             
             document.getElementById('detailTitle').innerText = `📊 [${name}] 펀드별 보유 현황`;
             
-            // 코드와 명칭 기준 필터링 매칭 진행
             const filtered = globalRawAssets.filter(a => {
                 const c = (a.asset_code || '').trim();
                 const n = (a.asset_name || '미지정 종목').trim();
@@ -190,8 +189,8 @@
             let totalAmt = 0;
 
             let html = filtered.map(item => {
-                const qty = Number(item.quantity || 0);
-                const amt = Number(item.purchase_amount || 0);
+                const qty = Math.round(Number(item.quantity || 0));
+                const amt = Math.round(Number(item.purchase_amount || 0));
                 totalQty += qty;
                 totalAmt += amt;
 
@@ -210,8 +209,8 @@
                 html += `
                     <tr class="bg-slate-50 font-black text-slate-900">
                         <td colspan="3" class="text-center">합계</td>
-                        <td class="num">${totalQty.toLocaleString()}</td>
-                        <td class="num text-blue-600">${totalAmt.toLocaleString()}</td>
+                        <td class="num">${Math.round(totalQty).toLocaleString()}</td>
+                        <td class="num text-blue-600">${Math.round(totalAmt).toLocaleString()}</td>
                     </tr>
                 `;
             }
@@ -234,9 +233,9 @@
                         <tr style="background-color:#f1f5f9; font-weight:bold;">
                             <th>종목코드</th>
                             <th>종목명</th>
-                            <th>보유수량 총합계</th>
-                            <th>매수단가 (평균)</th>
-                            <th>금액 총합계</th>
+                            <th>보유수량</th>
+                            <th>전일종가</th>
+                            <th>금액</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -248,9 +247,9 @@
                     <tr>
                         <td style="mso-number-format:'\\@';">${stock.asset_code}</td>
                         <td>${stock.asset_name}</td>
-                        <td>${stock.total_qty}</td>
+                        <td>${Math.round(stock.total_qty)}</td>
                         <td>${avgPrice}</td>
-                        <td>${stock.total_amt}</td>
+                        <td>${Math.round(stock.total_amt)}</td>
                     </tr>
                 `;
             });
