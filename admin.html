@@ -69,7 +69,7 @@
                             <th>종목명</th>
                             <th class="num">보유수량</th>
                             <th class="num">전일종가</th>
-                            <th class="num">금액 (원)</th>
+                            <th class="num">금액(원)</th>
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
@@ -79,24 +79,56 @@
             </div>
         </div>
 
-        <div id="detailSection" class="hidden bg-white p-6 rounded-2xl border shadow-sm space-y-4">
-            <div class="flex justify-between items-center border-b pb-3">
-                <h2 class="font-black text-slate-800 text-sm" id="detailTitle">펀드별 보유 상세</h2>
-                <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-xs">닫기 ✕</button>
+        <div class="space-y-6">
+            <div id="detailSection" class="hidden bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+                <div class="flex justify-between items-center border-b pb-3">
+                    <h2 class="font-black text-slate-800 text-sm" id="detailTitle">펀드별 보유 상세</h2>
+                    <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-xs">닫기 ✕</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr>
+                                <th>운용사명</th>
+                                <th>펀드명</th>
+                                <th>구분</th>
+                                <th class="num">보유수량</th>
+                                <th class="num">금액(원)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detailContentBody"></tbody>
+                    </table>
+                </div>
             </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left">
-                    <thead>
-                        <tr>
-                            <th>운용사명</th>
-                            <th>펀드명</th>
-                            <th>구분</th>
-                            <th class="num">보유수량</th>
-                            <th class="num">금액 (원)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="detailContentBody"></tbody>
-                </table>
+
+            <div class="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+                <div class="border-b pb-3 flex justify-between items-center">
+                    <h2 class="font-black text-slate-800 text-sm">📁 DB 파일 업로드 및 다운로드 (Blob Storage)</h2>
+                    <button onclick="fetchUploadedFiles()" class="text-xs text-blue-600 hover:underline">새로고침 ↻</button>
+                </div>
+
+                <div class="p-3 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <div class="flex items-center space-x-2">
+                        <input type="file" id="dbFileInput" class="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                        <button onclick="uploadFileToDB()" id="uploadBtn" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-700 transition-all shrink-0">DB 업로드</button>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1.5">※ 파일 데이터 자체가 DB `file_blob_storage` 테이블의 `BYTEA` 컬럼으로 직접 영구 저장됩니다.</p>
+                </div>
+
+                <div class="overflow-x-auto mt-2">
+                    <table class="w-full text-left text-xs">
+                        <thead>
+                            <tr class="bg-slate-100">
+                                <th>파일명</th>
+                                <th class="num">크기</th>
+                                <th class="text-center w-24">작업</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dbFileTableBody">
+                            <tr><td colspan="3" class="text-center text-gray-400 py-4">파일 데이터를 조회하는 중입니다...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -112,6 +144,7 @@
         let aggregatedStocks = []; 
 
         async function fetchDashboardData() {
+            // 기본 대시보드 주식 데이터 호출
             try {
                 const assetsRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
                 if (!assetsRes.ok) throw new Error("assets 로딩 실패");
@@ -134,6 +167,8 @@
             }
             
             calculateStockAggregation();
+            // 페이지 로드 시 DB에 직접 저장된 파일 목록도 함께 가져오기
+            fetchUploadedFiles();
         }
 
         function calculateStockAggregation() {
@@ -262,7 +297,7 @@
                             <th>종목명</th>
                             <th>보유수량</th>
                             <th>전일종가</th>
-                            <th>금액 (원)</th>
+                            <th>금액(원)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -296,6 +331,173 @@
         function handleLogout() {
             localStorage.clear();
             window.location.href = 'index.html';
+        }
+
+        /* ----------------------------------------------------
+         * ★ 새로 추가된 DB 파일 저장소 (Blob/Bytea) 핵심 JS 핸들러 ★
+         * ---------------------------------------------------- */
+
+        // 1. DB에 저장된 파일 목록 불러오기 (Read)
+        async function fetchUploadedFiles() {
+            const fileTbody = document.getElementById('dbFileTableBody');
+            fileTbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-3">불러오는 중...</td></tr>`;
+            
+            try {
+                // file_data 대용량 필드는 제외하고 메타데이터만 1차로 조회 (네트워크 최적화)
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/file_blob_storage?select=file_id,file_name,file_size,mime_type,uploaded_at&order=uploaded_at.desc`, { headers });
+                if (!res.ok) throw new Error("DB 파일 목록 로딩 실패");
+                
+                const files = await res.json();
+                
+                if (files.length === 0) {
+                    fileTbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-3">업로드된 파일이 없습니다.</td></tr>`;
+                    return;
+                }
+
+                fileTbody.innerHTML = files.map(file => {
+                    const kbSize = (file.file_size / 1024).toFixed(1) + " KB";
+                    return `
+                        <tr class="border-b text-slate-700">
+                            <td class="font-medium truncate max-w-[140px]" title="${file.file_name}">${file.file_name}</td>
+                            <td class="num text-slate-500">${kbSize}</td>
+                            <td class="text-center space-x-1">
+                                <button onclick="downloadFileFromDB(${file.file_id})" class="text-blue-600 hover:text-blue-800 font-bold hover:underline">다운로드</button>
+                                <button onclick="deleteFileFromDB(${file.file_id})" class="text-red-500 hover:text-red-700 font-bold hover:underline">삭제</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error("파일 조회 실패:", err);
+                fileTbody.innerHTML = `<tr><td colspan="3" class="text-center text-red-500 font-bold py-3">파일 목록 로드에 실패했습니다.</td></tr>`;
+            }
+        }
+
+        // 2. 파일을 바이너리화하여 DB에 직접 삽입하기 (Insert)
+        async function uploadFileToDB() {
+            const fileInput = document.getElementById('dbFileInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            
+            if (fileInput.files.length === 0) {
+                return alert("업로드할 파일을 먼저 선택해주세요.");
+            }
+
+            const file = fileInput.files[0];
+            uploadBtn.innerText = "업로드 중...";
+            uploadBtn.disabled = true;
+
+            const reader = new FileReader();
+            
+            // 파일을 ArrayBuffer로 비동기 판독
+            reader.onload = async function (e) {
+                try {
+                    const arrayBuffer = e.target.result;
+                    const bytes = new Uint8Array(arrayBuffer);
+                    
+                    // PostgreSQL/Supabase BYTEA 타입 입력을 위해 16진수(Hexadecimal Escape) 형식 변환
+                    // 예: \x54657374...
+                    let hexString = '\\x';
+                    const len = bytes.length;
+                    for (let i = 0; i < len; i++) {
+                        hexString += bytes[i].toString(16).padStart(2, '0');
+                    }
+
+                    const payload = {
+                        file_name: file.name,
+                        file_data: hexString, // 바이너리 변환된 hex string 송신
+                        file_size: file.size,
+                        mime_type: file.type || 'application/octet-stream'
+                    };
+
+                    const res = await fetch(`${SUPABASE_URL}/rest/v1/file_blob_storage`, {
+                        method: 'POST',
+                        headers: {
+                            ...headers,
+                            "Content-Type": "application/json",
+                            "Prefer": "return=representation"
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!res.ok) {
+                        const errDetail = await res.text();
+                        throw new Error(errDetail || "업로드 응답 에러");
+                    }
+
+                    alert("🎉 파일을 DB 테이블에 직접 성공적으로 업로드 완료했습니다!");
+                    fileInput.value = ""; // 파일 폼 초기화
+                    fetchUploadedFiles(); // 목록 리로드
+                } catch (err) {
+                    console.error("업로드 에러:", err);
+                    alert("업로드 실패: " + err.message);
+                } finally {
+                    uploadBtn.innerText = "DB 업로드";
+                    uploadBtn.disabled = false;
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        // 3. DB에서 바이너리 데이터를 받아와 원래 파일로 복원 및 다운로드 (Download)
+        async function downloadFileFromDB(fileId) {
+            try {
+                // file_id 기준 단일 파일 데이터(file_data 포함) 조회
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/file_blob_storage?file_id=eq.${fileId}&select=*`, { headers });
+                if (!res.ok) throw new Error("파일 로딩 실패");
+
+                const result = await res.json();
+                if (!result || result.length === 0) return alert("해당 파일을 찾을 수 없습니다.");
+
+                const fileInfo = result[0];
+                let rawData = fileInfo.file_data;
+
+                // Supabase에서 반환하는 이진 데이터는 보통 '\x...' 포맷의 16진수 문자열로 옵니다.
+                if (typeof rawData === 'string' && rawData.startsWith('\\x')) {
+                    rawData = rawData.substring(2); // '\x' 제거
+                    const byteArray = new Uint8Array(rawData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                    
+                    // 바이너리 데이터와 MIME 타입을 브라우저 객체(Blob)로 빌드
+                    const blob = new Blob([byteArray], { type: fileInfo.mime_type });
+                    const downloadUrl = URL.createObjectURL(blob);
+                    
+                    // 가상 엘리먼트를 통한 다운로드 실행
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    a.download = fileInfo.file_name;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // 리소스 해제
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(downloadUrl);
+                } else {
+                    throw new Error("올바른 바이너리 규격이 아닙니다.");
+                }
+            } catch (err) {
+                console.error("다운로드 에러:", err);
+                alert("파일을 복원하여 다운로드하는 과정에서 오류가 발생했습니다.");
+            }
+        }
+
+        // 4. DB 테이블 내 파일 삭제 처리 (Delete)
+        async function deleteFileFromDB(fileId) {
+            if (!confirm("정말 이 파일을 데이터베이스에서 영구 삭제하시겠습니까?")) return;
+
+            try {
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/file_blob_storage?file_id=eq.${fileId}`, {
+                    method: 'DELETE',
+                    headers
+                });
+
+                if (!res.ok) throw new Error("DB 삭제 처리 실패");
+
+                alert("삭제 완료되었습니다.");
+                fetchUploadedFiles();
+            } catch (err) {
+                console.error("삭제 실패:", err);
+                alert("삭제 실패: " + err.message);
+            }
         }
 
         window.onload = fetchDashboardData;
