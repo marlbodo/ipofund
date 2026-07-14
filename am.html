@@ -42,7 +42,7 @@
     <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm mb-6 flex justify-between items-center">
         <div class="flex items-center space-x-4">
             <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md uppercase tracking-wider">모든 운용사 주식 합계 금액</span>
-            <h2 class="text-xl font-black text-blue-900" id="grandTotalAmount">0원</h2>
+            <h2 class="text-xl font-black text-blue-900" id="grandTotalAmount">0백만원</h2>
         </div>
         <button onclick="downloadExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm">📊 엑셀로 내려받기</button>
     </div>
@@ -56,10 +56,10 @@
                     <thead>
                         <tr>
                             <th>운용사명</th>
-                            <th class="num">가입금액</th>
+                            <th class="num">펀드금액 (억원)</th>
                             <th class="num">지분율</th>
                             <th class="num">주식수</th>
-                            <th class="num">금액</th>
+                            <th class="num">주식금액 (백만원)</th>
                             <th class="num">주식비중</th>
                         </tr>
                     </thead>
@@ -77,9 +77,9 @@
             </div>
             
             <div class="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border text-[11px]">
-                <div><span class="text-gray-500">가입금액:</span> <span class="font-bold text-slate-800" id="infoJoinAmt">0원</span></div>
-                <div><span class="text-gray-500">지분율:</span> <span class="font-bold text-slate-800" id="infoShareRate">0%</span></div>
-                <div><span class="text-gray-500">금액합계:</span> <span class="font-bold text-blue-600" id="infoTotalAmt">0원</span></div>
+                <div><span class="text-gray-500">펀드금액:</span> <span class="font-bold text-slate-800" id="infoFundSize">0억원</span></div>
+                <div><span class="text-gray-500">지분율:</span> <span class="font-bold text-slate-800" id="infoEquityRate">0%</span></div>
+                <div><span class="text-gray-500">금액합계:</span> <span class="font-bold text-blue-600" id="infoTotalAmt">0백만원</span></div>
                 <div><span class="text-gray-500">주식비중:</span> <span class="font-bold text-slate-800" id="infoStockRate">0%</span></div>
             </div>
 
@@ -90,7 +90,7 @@
                             <th>종목명</th>
                             <th class="num">보유수량</th>
                             <th class="num">종가</th>
-                            <th class="num">금액</th>
+                            <th class="num">금액 (백만원)</th>
                         </tr>
                     </thead>
                     <tbody id="detailContentBody"></tbody>
@@ -106,13 +106,21 @@
         const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 
         let globalRawAssets = []; 
+        let globalRawFunds = [];
         let aggregatedCompanies = []; 
 
         async function fetchDashboardData() {
             try {
-                const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
-                if (!res.ok) throw new Error("네트워크 응답 오류");
-                globalRawAssets = await res.json();
+                // 자산 데이터와 펀드 데이터 동시 호출
+                const [assetsRes, fundsRes] = await Promise.all([
+                    fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers }),
+                    fetch(`${SUPABASE_URL}/rest/v1/ipo_funds`, { headers })
+                ]);
+
+                if (!assetsRes.ok || !fundsRes.ok) throw new Error("네트워크 응답 오류");
+                
+                globalRawAssets = await assetsRes.json();
+                globalRawFunds = await fundsRes.json();
                 
                 calculateCompanyAggregation();
             } catch (err) {
@@ -121,49 +129,67 @@
             }
         }
 
-        // 운용사 기준 집계 연산 로직
+        // 운용사 기준 집계 및 단위 변환 연산 로직
         function calculateCompanyAggregation() {
             const companyMap = {};
-            let totalGrandAmt = 0;
-            let totalJoinAmt = 0;
+            let totalGrandAmtInMillion = 0;
 
-            globalRawAssets.forEach(asset => {
-                const company = (asset.company || '미지정 운용사').trim();
-                const qty = Math.round(Number(asset.quantity || 0));
-                const amt = Math.round(Number(asset.purchase_amount || 0));
-                // 가입금액 필드가 스키마에 따로 없거나 다를 경우를 고려해 기본 데이터 매핑 (예시: asset.join_amount 혹은 대용 필드 처리)
-                // 만약 테이블 컬럼명이 다르면 asset.join_amount 등으로 변경 필요. 일단 purchase_amount 기반 임시 집계 구조 차용 방지용 수식 구성
-                const joinAmt = Math.round(Number(asset.join_amount || asset.purchase_amount * 1.5 || 0)); 
-
-                totalGrandAmt += amt;
-                totalJoinAmt += joinAmt;
+            // 1. ipo_funds 테이블 매핑 (운용사별 펀드금액 및 지분율 매핑)
+            globalRawFunds.forEach(fund => {
+                const company = (fund.company || '미지정 운용사').trim();
+                const fundSize = Number(fund.fund_size || 0); // 기본단위 억원 가정
+                const equityRate = Number(fund.equity_rate || 0);
 
                 if (!companyMap[company]) {
                     companyMap[company] = {
                         company_name: company,
-                        join_amt: 0,
+                        fund_size: 0,
+                        equity_rate: 0,
+                        total_qty: 0,
+                        total_amt: 0 // 원화 기준 저장 후 백만원 변환
+                    };
+                }
+                companyMap[company].fund_size += fundSize;
+                companyMap[company].equity_rate = equityRate; // 지분율 매핑
+            });
+
+            // 2. ipo_assets 테이블 연산 누적 (주식 보유량 및 자산 평가액 누적)
+            globalRawAssets.forEach(asset => {
+                const company = (asset.company || '미지정 운용사').trim();
+                const qty = Math.round(Number(asset.quantity || 0));
+                const amt = Number(asset.purchase_amount || 0);
+
+                if (!companyMap[company]) {
+                    companyMap[company] = {
+                        company_name: company,
+                        fund_size: 0,
+                        equity_rate: 0,
                         total_qty: 0,
                         total_amt: 0
                     };
                 }
-                companyMap[company].join_amt += joinAmt;
                 companyMap[company].total_qty += qty;
                 companyMap[company].total_amt += amt;
             });
 
             aggregatedCompanies = Object.values(companyMap);
 
-            // 지분율 및 주식비중 계산 계산
+            // 3. 주식금액 단위를 백만원 단위로 변경 및 주식비중 산출
             aggregatedCompanies.forEach(c => {
-                c.share_rate = totalJoinAmt > 0 ? Math.round((c.join_amt / totalJoinAmt) * 100) : 0;
-                c.stock_rate = c.join_amt > 0 ? Math.round((c.total_amt / c.join_amt) * 100) : 0;
+                // 원화 단위를 백만원 단위로 변환 및 반올림
+                c.total_amt_million = Math.round(c.total_amt / 1000000);
+                totalGrandAmtInMillion += c.total_amt_million;
+
+                // 주식비중 = 주식금액(백만원) / [펀드금액(억원) * 100(백만원 환산)] * 100%
+                const fundSizeInMillion = c.fund_size * 100;
+                c.stock_rate = fundSizeInMillion > 0 ? Math.round((c.total_amt_million / fundSizeInMillion) * 100) : 0;
             });
 
-            // 금액 내림차순 정렬
-            aggregatedCompanies.sort((a, b) => b.total_amt - a.total_amt);
+            // 주식금액 내림차순 정렬
+            aggregatedCompanies.sort((a, b) => b.total_amt_million - a.total_amt_million);
 
-            // 상단 총액 반영
-            document.getElementById('grandTotalAmount').innerText = Math.round(totalGrandAmt).toLocaleString() + " 원";
+            // 상단 총액 반영 (백만원 단위)
+            document.getElementById('grandTotalAmount').innerText = totalGrandAmtInMillion.toLocaleString() + " 백만원";
 
             renderMainTable();
         }
@@ -181,10 +207,10 @@
                 return `
                     <tr class="clickable border-b text-slate-700" onclick="showCompanyDetail('${escapedCompany}')">
                         <td class="font-medium text-blue-600">${c.company_name}</td>
-                        <td class="num font-semibold text-slate-600">${Math.round(c.join_amt).toLocaleString()}</td>
-                        <td class="num text-gray-500">${c.share_rate}%</td>
+                        <td class="num font-semibold text-slate-600">${Math.round(c.fund_size).toLocaleString()}</td>
+                        <td class="num text-gray-500">${c.equity_rate}%</td>
                         <td class="num text-slate-700">${Math.round(c.total_qty).toLocaleString()}</td>
-                        <td class="num font-bold text-slate-900">${Math.round(c.total_amt).toLocaleString()}</td>
+                        <td class="num font-bold text-slate-900">${c.total_amt_million.toLocaleString()}</td>
                         <td class="num font-semibold text-emerald-600">${c.stock_rate}%</td>
                     </tr>
                 `;
@@ -199,33 +225,34 @@
 
             // 요약 카드 정보 갱신
             document.getElementById('detailTitle').innerText = `🏢 [${companyName}] 보유 종목 상세`;
-            document.getElementById('infoJoinAmt').innerText = Math.round(target.join_amt).toLocaleString() + "원";
-            document.getElementById('infoShareRate').innerText = target.share_rate + "%";
-            document.getElementById('infoTotalAmt').innerText = Math.round(target.total_amt).toLocaleString() + "원";
+            document.getElementById('infoFundSize').innerText = Math.round(target.fund_size).toLocaleString() + "억원";
+            document.getElementById('infoEquityRate').innerText = target.equity_rate + "%";
+            document.getElementById('infoTotalAmt').innerText = target.total_amt_million.toLocaleString() + "백만원";
             document.getElementById('infoStockRate').innerText = target.stock_rate + "%";
 
-            // 보유 종목 필터링
+            // 보유 종목 필터링 및 리스트 렌더링
             const filtered = globalRawAssets.filter(a => (a.company || '미지정 운용사').trim() === companyName);
             const detailTbody = document.getElementById('detailContentBody');
             
             let totalQty = 0;
-            let totalAmt = 0;
+            let totalAmtMillion = 0;
 
             let html = filtered.map(item => {
                 const name = (item.asset_name || '미지정 종목').trim();
                 const qty = Math.round(Number(item.quantity || 0));
-                const amt = Math.round(Number(item.purchase_amount || 0));
-                const closePrice = qty > 0 ? Math.round(amt / qty) : 0; // 종가 = 금액 / 수량
+                const amtOriginal = Number(item.purchase_amount || 0);
+                const amtMillion = Math.round(amtOriginal / 1000000); // 종목별 평가액 백만원 처리
+                const closePrice = qty > 0 ? Math.round(amtOriginal / qty) : 0; // 종가 = 원화 기준 금액 / 수량
 
                 totalQty += qty;
-                totalAmt += amt;
+                totalAmtMillion += amtMillion;
 
                 return `
                     <tr class="border-b text-xs">
                         <td class="font-medium text-slate-800">${name}</td>
                         <td class="num text-slate-600">${qty.toLocaleString()}</td>
                         <td class="num text-gray-500">${closePrice.toLocaleString()}</td>
-                        <td class="num font-semibold text-slate-900">${amt.toLocaleString()}</td>
+                        <td class="num font-semibold text-slate-900">${amtMillion.toLocaleString()}</td>
                     </tr>
                 `;
             }).join('');
@@ -236,7 +263,7 @@
                         <td class="text-center">합계</td>
                         <td class="num text-slate-700">${Math.round(totalQty).toLocaleString()}</td>
                         <td class="num text-gray-400">-</td>
-                        <td class="num text-blue-600">${Math.round(totalAmt).toLocaleString()}</td>
+                        <td class="num text-blue-600">${totalAmtMillion.toLocaleString()}</td>
                     </tr>
                 `;
             }
@@ -258,10 +285,10 @@
                     <thead>
                         <tr style="background-color:#f1f5f9; font-weight:bold;">
                             <th>운용사명</th>
-                            <th>가입금액</th>
+                            <th>펀드금액 (억원)</th>
                             <th>지분율</th>
                             <th>주식수</th>
-                            <th>금액</th>
+                            <th>주식금액 (백만원)</th>
                             <th>주식비중</th>
                         </tr>
                     </thead>
@@ -272,10 +299,10 @@
                 excelHtml += `
                     <tr>
                         <td>${c.company_name}</td>
-                        <td>${Math.round(c.join_amt)}</td>
-                        <td>${c.share_rate}%</td>
+                        <td>${Math.round(c.fund_size)}</td>
+                        <td>${c.equity_rate}%</td>
                         <td>${Math.round(c.total_qty)}</td>
-                        <td>${Math.round(c.total_amt)}</td>
+                        <td>${c.total_amt_million}</td>
                         <td>${c.stock_rate}%</td>
                     </tr>
                 `;
