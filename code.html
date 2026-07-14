@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>종목코드 전체 보기(엑셀용) | 공모주펀드 관리자</title>
+    <title>종목코드 변환기(엑셀용) | 공모주펀드 관리자</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         // 관리자 계정 접근 제한 제어
@@ -40,23 +40,23 @@
 
     <div class="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-sm mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-            <h2 class="text-base font-black text-white">🔑 전체 종목코드 리스트 (전체 출력)</h2>
-            <p class="text-xs text-slate-300 mt-1">필터링 없이 데이터베이스(DB)에 저장된 모든 주식명과 모든 코드를 가공 없이 나열합니다.</p>
+            <h2 class="text-base font-black text-white">🔑 종목코드 변환기 (ISIN 12자리 ➔ 단축 6자리)</h2>
+            <p class="text-xs text-slate-300 mt-1">DB 원본 코드 우측에 <strong>6자리 단축 주식표준코드</strong>를 자동 변환하여 추가 컬럼으로 나열합니다.</p>
         </div>
         <div class="flex items-center space-x-3 shrink-0">
             <span class="text-xs font-bold text-slate-300 bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600">
                 조회된 전체 항목: <span id="totalCodeCount" class="text-emerald-400 font-extrabold">0</span>개
             </span>
             <button onclick="downloadCodeExcel()" class="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-1.5">
-                📊 전체 리스트 엑셀로 저장하기
+                📊 변환값 포함 엑셀 저장하기
             </button>
         </div>
     </div>
 
-    <div class="bg-white p-6 rounded-2xl border shadow-sm max-w-3xl mx-auto">
+    <div class="bg-white p-6 rounded-2xl border shadow-sm max-w-4xl mx-auto">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="font-black text-slate-800 text-sm">📈 전체 종목코드 목록</h2>
-            <span class="text-[11px] text-slate-400">※ 데이터베이스에 기록된 내용이 그대로 표기됩니다.</span>
+            <h2 class="font-black text-slate-800 text-sm">📈 종목코드 자동 변환 현황</h2>
+            <span class="text-[11px] text-slate-400">※ 12자리 표준코드(KRxxxxx) 감지 시 자동으로 6자리 단축코드가 계산됩니다.</span>
         </div>
         
         <div class="overflow-x-auto">
@@ -65,11 +65,12 @@
                     <tr>
                         <th class="w-16 text-center">No.</th>
                         <th>종목명</th>
-                        <th class="w-48">종목코드 (원본 그대로)</th>
+                        <th>DB 원본 코드</th>
+                        <th class="w-56 text-emerald-700 bg-emerald-50/50">변환 종목코드 (6자리)</th>
                     </tr>
                 </thead>
                 <tbody id="codeTableBody">
-                    <tr><td colspan="3" class="text-center text-gray-400 py-6">데이터를 불러오는 중입니다...</td></tr>
+                    <tr><td colspan="4" class="text-center text-gray-400 py-6">데이터를 불러오는 중입니다...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -80,87 +81,117 @@
         const SUPABASE_KEY = 'sb_publishable_1_9-bKTcV3sBQkv10ru__w_iW-51pKt';
         const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 
-        let rawStocks = []; // 중복 제거만 수행한 원본 보존 배열
+        let processedStocks = []; // 변환 결과가 포함된 최종 주식 배열
 
-        async function fetchAllStockCodes() {
+        // 12자리 ISIN 표준코드에서 6자리 단축 종목코드를 추출하는 함수
+        function convertToShortCode(rawCode) {
+            if (!rawCode) return "-";
+            const cleaned = rawCode.trim().toUpperCase();
+            
+            // KR... 형식의 12자리 코드 검증 정규식 (예: KR7439260001)
+            const isinPattern = /^KR[0-9A-Z]{10}$/;
+            
+            if (isinPattern.test(cleaned)) {
+                // 앞 3글자 제외 후 그 뒤의 6글자 슬라이싱
+                return cleaned.substring(3, 9);
+            }
+            
+            // 만약 이미 6자리 단축 코드 형태라면 그대로 보존
+            if (/^[A-Z0-9]{6}$/.test(cleaned)) {
+                return cleaned;
+            }
+
+            return "-"; // 변환 불가능한 경우 빈 칸 표시
+        }
+
+        async function fetchAndProcessStockCodes() {
             try {
-                // Supabase에서 자산 원본 데이터 호출
                 const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
                 if (!res.ok) throw new Error("데이터 로딩 실패");
                 
                 const rawAssets = await res.json();
-                processRawData(rawAssets);
+                processData(rawAssets);
             } catch (err) {
                 console.error("API 연동 에러:", err);
                 document.getElementById('codeTableBody').innerHTML = `
-                    <tr><td colspan="3" class="text-center text-red-500 font-bold py-6">데이터를 불러오지 못했습니다. 네트워크 상태 및 Supabase 설정을 확인해 주세요.</td></tr>
+                    <tr><td colspan="4" class="text-center text-red-500 font-bold py-6">데이터를 불러오지 못했습니다. 네트워크 상태 및 Supabase 설정을 확인해 주세요.</td></tr>
                 `;
             }
         }
 
-        function processRawData(assets) {
+        function processData(assets) {
             const stockMap = {};
 
             assets.forEach(asset => {
                 const name = (asset.asset_name || '').trim();
-                // 원본에 저장된 코드 그대로 추출 (공백 제거만 진행)
                 const code = (asset.asset_code || asset.ticker || asset.stock_code || '').trim();
 
                 if (name) {
-                    // 동일한 종목명이 여러 개 존재할 수 있으므로, 키값으로 중복만 묶어줍니다.
-                    // 코드가 비어 있는 주식이더라도 일단 공백으로 채워 다 보여줍니다.
-                    stockMap[name] = code || '-';
+                    // 중복된 주식명은 하나로 통합하되, 원본 코드가 있는 값을 우선적으로 유지합니다.
+                    if (!stockMap[name] || (stockMap[name] === '-' && code)) {
+                        stockMap[name] = code || '-';
+                    }
                 }
             });
 
-            // 종목명 기준으로 가나다순 정렬
-            rawStocks = Object.keys(stockMap).map(name => ({
-                asset_name: name,
-                asset_code: stockMap[name]
-            })).sort((a, b) => a.asset_name.localeCompare(b.asset_name, 'ko'));
+            // 데이터 구조화 및 변환 종목코드 추가
+            processedStocks = Object.keys(stockMap).map(name => {
+                const rawCode = stockMap[name];
+                return {
+                    asset_name: name,
+                    raw_code: rawCode,
+                    converted_code: convertToShortCode(rawCode) // 6자리 계산 필드 추가
+                };
+            }).sort((a, b) => a.asset_name.localeCompare(b.asset_name, 'ko'));
 
-            // 개수 바인딩 및 화면 렌더링
-            document.getElementById('totalCodeCount').innerText = rawStocks.length;
+            document.getElementById('totalCodeCount').innerText = processedStocks.length;
             renderCodeTable();
         }
 
         function renderCodeTable() {
             const tbody = document.getElementById('codeTableBody');
-            if (rawStocks.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-6">조회할 주식 데이터가 존재하지 않습니다.</td></tr>`;
+            if (processedStocks.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 py-6">조회할 주식 데이터가 존재하지 않습니다.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = rawStocks.map((stock, index) => `
+            tbody.innerHTML = processedStocks.map((stock, index) => `
                 <tr class="hover:bg-slate-50 border-b text-slate-700">
                     <td class="text-center font-bold text-gray-400">${index + 1}</td>
                     <td class="font-medium text-slate-900">${stock.asset_name}</td>
-                    <td class="font-mono text-blue-600 font-bold tracking-wider">${stock.asset_code}</td>
+                    <td class="font-mono text-slate-500 tracking-wider">${stock.raw_code}</td>
+                    <td class="font-mono text-emerald-600 font-black bg-emerald-50/20 tracking-wider">
+                        ${stock.converted_code}
+                    </td>
                 </tr>
             `).join('');
         }
 
-        // 전체 주식명, 종목코드 데이터 엑셀 파일 다운로드
+        // 원본 및 변환본이 모두 담긴 엑셀 파일 다운로드
         function downloadCodeExcel() {
-            if (rawStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
+            if (processedStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
 
             let excelHtml = `
                 <meta charset="utf-8">
                 <table border="1">
                     <thead>
                         <tr style="background-color:#0f172a; color:#ffffff; font-weight:bold; height:30px;">
+                            <th>No.</th>
                             <th>종목명</th>
-                            <th>종목코드</th>
+                            <th>DB 원본 코드</th>
+                            <th style="background-color:#10b981;">변환 종목코드 (6자리)</th>
                         </tr>
                     </thead>
                     <tbody>
             `;
 
-            rawStocks.forEach(stock => {
+            processedStocks.forEach((stock, index) => {
                 excelHtml += `
                     <tr style="height:25px;">
+                        <td style="text-align:center;">${index + 1}</td>
                         <td style="font-family:'Malgun Gothic'; text-align:left;">${stock.asset_name}</td>
-                        <td style="font-family:'Consolas'; mso-number-format:'@'; text-align:center;">${stock.asset_code}</td>
+                        <td style="font-family:'Consolas'; mso-number-format:'@'; text-align:center;">${stock.raw_code}</td>
+                        <td style="font-family:'Consolas'; mso-number-format:'@'; text-align:center; font-weight:bold; color:#047857;">${stock.converted_code}</td>
                     </tr>
                 `;
             });
@@ -171,7 +202,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `공모주펀드_전체_종목코드리스트_${new Date().toISOString().slice(0,10)}.xls`;
+            a.download = `공모주펀드_종목코드_변환리스트_${new Date().toISOString().slice(0,10)}.xls`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -182,8 +213,7 @@
             window.location.href = 'index.html';
         }
 
-        // 페이지 로드 시 원본 데이터 즉시 불러오기
-        window.onload = fetchAllStockCodes;
+        window.onload = fetchAndProcessStockCodes;
     </script>
 </body>
 </html>
