@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>종목코드 관리(엑셀용) | 공모주펀드 관리자</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // 관리자 계정 접근 제한 제어
+        (function() {
+            const loginId = localStorage.getItem('login_id');
+            if (loginId !== 'admin') {
+                alert("관리자 전용 페이지입니다. 로그인 후 이용해주세요.");
+                window.location.href = 'index.html';
+            }
+        })();
+    </script>
+    <style>
+        body { background-color: #f8fafc; color: #334155; font-family: 'Pretendard', sans-serif; font-size: 12px; }
+        .num { font-variant-numeric: tabular-nums; }
+        table { border-collapse: separate; border-spacing: 0; }
+        th, td { border: 1px solid #e2e8f0; padding: 8px 12px; }
+        th { background-color: #f8fafc; font-weight: 700; }
+    </style>
+</head>
+<body class="p-6">
+
+    <header class="mb-4 flex justify-between items-center bg-white p-6 rounded-2xl border shadow-sm">
+        <h1 class="text-xl font-black text-slate-800 cursor-pointer" onclick="location.href='admin.html'">공모주펀드 관리자</h1>
+        <div class="flex items-center space-x-4">
+            <a href="members.html" class="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs shadow-sm hover:bg-blue-700 transition-all">회원관리</a>
+            <button onclick="handleLogout()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-xl font-bold text-xs hover:bg-gray-300 transition-all">로그아웃</button>
+        </div>
+    </header>
+
+    <nav class="mb-6 flex space-x-2 bg-white p-3 rounded-2xl border shadow-sm">
+        <a href="admin.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">📊 공모주펀드 주식 보유 현황</a>
+        <a href="am.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">🏢 펀드별 보유내역</a>
+        <a href="code.html" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-xs border border-blue-200 shadow-sm transition-all">🔑 종목코드 보기(엑셀용)</a>
+    </nav>
+
+    <div class="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-sm mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h2 class="text-base font-black text-white">🔑 HTS/MTS 주식 조회용 올바른 종목코드 리스트</h2>
+            <p class="text-xs text-slate-300 mt-1">국제표준코드(KRxxx) 등 부적합한 포맷을 제외한 <strong>6자리 규격(숫자/영문) 코드</strong>만 추출 및 매핑했습니다.</p>
+        </div>
+        <div class="flex items-center space-x-3 shrink-0">
+            <span class="text-xs font-bold text-slate-300 bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600">
+                추출된 유효 종목: <span id="validCodeCount" class="text-emerald-400 font-extrabold">0</span>개
+            </span>
+            <button onclick="downloadCodeExcel()" class="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-1.5">
+                📊 정제 리스트 엑셀로 저장하기
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-2xl border shadow-sm max-w-3xl mx-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="font-black text-slate-800 text-sm">📈 정제 완료된 종목코드 목록</h2>
+            <span class="text-[11px] text-slate-400">※ 데이터가 비어있거나 규칙에 어긋나는 항목은 자동으로 제외되었습니다.</span>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="w-full text-left" id="codeTable">
+                <thead>
+                    <tr>
+                        <th class="w-16 text-center">No.</th>
+                        <th>종목명</th>
+                        <th class="w-48">종목코드 (6자리)</th>
+                    </tr>
+                </thead>
+                <tbody id="codeTableBody">
+                    <tr><td colspan="3" class="text-center text-gray-400 py-6">데이터를 불러와 정제하는 중입니다...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://hnxvsopwxiamexnxczhj.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_1_9-bKTcV3sBQkv10ru__w_iW-51pKt';
+        const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
+
+        let purifiedStocks = []; // 정제 및 중복 제거 완료된 최종 배열
+
+        async function fetchAndPurifyStockCodes() {
+            try {
+                // Supabase에서 자산 원본 데이터 호출
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
+                if (!res.ok) throw new Error("데이터 로딩 실패");
+                
+                const rawAssets = await res.json();
+                purifyData(rawAssets);
+            } catch (err) {
+                console.error("API 연동 에러:", err);
+                document.getElementById('codeTableBody').innerHTML = `
+                    <tr><td colspan="3" class="text-center text-red-500 font-bold py-6">데이터를 불러오지 못했습니다. 네트워크 상태 및 Supabase 설정을 확인해 주세요.</td></tr>
+                `;
+            }
+        }
+
+        function purifyData(assets) {
+            const stockMap = {};
+            // 올바른 종목코드 정규식: 오직 영문과 숫자로만 이루어진 6글자
+            const validCodePattern = /^[A-Za-z0-9]{6}$/;
+
+            assets.forEach(asset => {
+                const name = (asset.asset_name || '').trim();
+                // DB의 필드명이 'asset_code' 혹은 'ticker'일 경우에 대응하여 안전하게 추출
+                let code = (asset.asset_code || asset.ticker || asset.stock_code || '').trim();
+
+                if (name && code) {
+                    // 특수문자나 한글, 혹은 KR로 시작하는 코드 제거 후 6글자 규격 검증
+                    if (validCodePattern.test(code)) {
+                        if (!stockMap[name]) {
+                            stockMap[name] = code;
+                        }
+                    }
+                }
+            });
+
+            // Map 객체를 2차원 배열 형태로 정렬 및 저장 (종목명 가나다순 정렬)
+            purifiedStocks = Object.keys(stockMap).map(name => ({
+                asset_name: name,
+                asset_code: stockMap[name]
+            })).sort((a, b) => a.asset_name.localeCompare(b.asset_name, 'ko'));
+
+            // 개수 바인딩 및 렌더링
+            document.getElementById('validCodeCount').innerText = purifiedStocks.length;
+            renderCodeTable();
+        }
+
+        function renderCodeTable() {
+            const tbody = document.getElementById('codeTableBody');
+            if (purifiedStocks.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-6">규격에 일치하는 정상 종목코드가 없습니다.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = purifiedStocks.map((stock, index) => `
+                <tr class="hover:bg-slate-50 border-b text-slate-700">
+                    <td class="text-center font-bold text-gray-400">${index + 1}</td>
+                    <td class="font-medium text-slate-900">${stock.asset_name}</td>
+                    <td class="font-mono text-blue-600 font-bold tracking-wider">${stock.asset_code}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 종목명, 종목코드 데이터 엑셀 내보내기 함수
+        function downloadCodeExcel() {
+            if (purifiedStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
+
+            let excelHtml = `
+                <meta charset="utf-8">
+                <table border="1">
+                    <thead>
+                        <tr style="background-color:#0f172a; color:#ffffff; font-weight:bold; height:30px;">
+                            <th>종목명</th>
+                            <th>종목코드</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            purifiedStocks.forEach(stock => {
+                excelHtml += `
+                    <tr style="height:25px;">
+                        <td style="font-family:'Malgun Gothic'; text-align:left;">${stock.asset_name}</td>
+                        <td style="font-family:'Consolas'; mso-number-format:'@'; text-align:center;">${stock.asset_code}</td>
+                    </tr>
+                `;
+            });
+
+            excelHtml += `</tbody></table>`;
+
+            const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `공모주펀드_종목코드_정제리스트_${new Date().toISOString().slice(0,10)}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = 'index.html';
+        }
+
+        // 페이지 로드 시 즉시 데이터 호출 및 정제 실행
+        window.onload = fetchAndPurifyStockCodes;
+    </script>
+</body>
+</html>
