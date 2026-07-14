@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>공모주펀드 관리자 - 운용사별 보유내역</title>
+    <title>공모주펀드 관리자 - 펀드별 보유내역</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         // 관리자 계정 접근 제한 제어
@@ -35,7 +35,7 @@
 
     <nav class="mb-6 flex space-x-2 bg-white p-3 rounded-2xl border shadow-sm">
         <a href="admin.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">📊 공모주펀드 주식 보유 현황</a>
-        <a href="am.html" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-xs border border-blue-200 shadow-sm transition-all">🏢 운용사별 보유내역</a>
+        <a href="am.html" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-xs border border-blue-200 shadow-sm transition-all">🏢 펀드별 보유내역</a>
         <a href="code.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">🔑 종목코드 보기(엑셀용)</a>
     </nav>
 
@@ -46,11 +46,11 @@
                 <h2 class="text-lg font-black text-slate-800" id="grandTotalFundSize">0억원</h2>
             </div>
             <div class="flex items-center space-x-2 border-r pr-6 border-blue-200">
-                <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">주식 합계 금액</span>
+                <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded">주식 합계 금액</span>
                 <h2 class="text-lg font-black text-blue-900" id="grandTotalAmount">0백만원</h2>
             </div>
             <div class="flex items-center space-x-2">
-                <span class="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">전체 주식 비중</span>
+                <span class="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded">전체 주식 비중</span>
                 <h2 class="text-lg font-black text-emerald-900" id="grandTotalStockRate">0.00%</h2>
             </div>
         </div>
@@ -61,15 +61,16 @@
         
         <div class="xl:col-span-2 bg-white p-6 rounded-2xl border shadow-sm">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="font-black text-slate-800 text-sm">📈 운용사별 보유 현황 (금액 내림차순)</h2>
-                <span class="text-xs font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg">총 운용사 수: <span id="companyCount" class="text-blue-600">0</span>개</span>
+                <h2 class="font-black text-slate-800 text-sm">📈 펀드별 보유 현황 (금액 내림차순)</h2>
+                <span class="text-xs font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg">총 펀드 수: <span id="fundCount" class="text-blue-600">0</span>개</span>
             </div>
             <div class="overflow-x-auto">
-                <table class="w-full text-left" id="companyMainTable">
+                <table class="w-full text-left" id="fundMainTable">
                     <thead>
                         <tr>
                             <th class="w-12 text-center">No.</th>
                             <th>운용사명</th>
+                            <th>펀드명</th>
                             <th class="num">펀드금액 (억원)</th>
                             <th class="num">지분율</th>
                             <th class="num">주식수</th>
@@ -77,8 +78,8 @@
                             <th class="num">주식비중</th>
                         </tr>
                     </thead>
-                    <tbody id="companyTableBody">
-                        <tr><td colspan="7" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
+                    <tbody id="fundTableBody">
+                        <tr><td colspan="8" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -86,7 +87,7 @@
 
         <div id="detailSection" class="hidden bg-white p-6 rounded-2xl border shadow-sm space-y-4">
             <div class="flex justify-between items-center border-b pb-3">
-                <h2 class="font-black text-slate-800 text-sm" id="detailTitle">운용사별 보유 상세</h2>
+                <h2 class="font-black text-slate-800 text-sm" id="detailTitle">펀드별 보유 상세</h2>
                 <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-xs">닫기 ✕</button>
             </div>
             
@@ -121,7 +122,7 @@
 
         let globalRawAssets = []; 
         let globalRawFunds = [];
-        let aggregatedCompanies = []; 
+        let aggregatedFunds = []; 
 
         async function fetchDashboardData() {
             try {
@@ -135,26 +136,29 @@
                 globalRawAssets = await assetsRes.json();
                 globalRawFunds = await fundsRes.json();
                 
-                calculateCompanyAggregation();
+                calculateFundAggregation();
             } catch (err) {
                 console.error(err);
-                document.getElementById('companyTableBody').innerHTML = `<tr><td colspan="7" class="text-center text-red-500 font-bold py-4">데이터 로딩에 실패했습니다.</td></tr>`;
+                document.getElementById('fundTableBody').innerHTML = `<tr><td colspan="8" class="text-center text-red-500 font-bold py-4">데이터 로딩에 실패했습니다.</td></tr>`;
             }
         }
 
-        function calculateCompanyAggregation() {
-            const companyMap = {};
+        // 펀드명 기준 집계 연산 로직 변경
+        function calculateFundAggregation() {
+            const fundMap = {};
             let totalGrandAmtInMillion = 0;
             let totalGrandFundSize = 0;
 
-            // 1. ipo_funds 매핑
+            // 1. ipo_funds 매핑 (펀드명 고유 키 설정)
             globalRawFunds.forEach(fund => {
+                const fName = (fund.fund_name || '미지정 펀드').trim();
                 const company = (fund.company || '미지정 운용사').trim();
                 const fundSize = Number(fund.fund_size || 0); 
                 const equityRate = Number(fund.equity_rate || 0);
 
-                if (!companyMap[company]) {
-                    companyMap[company] = {
+                if (!fundMap[fName]) {
+                    fundMap[fName] = {
+                        fund_name: fName,
                         company_name: company,
                         fund_size: 0,
                         equity_rate: 0,
@@ -162,18 +166,20 @@
                         total_amt: 0 
                     };
                 }
-                companyMap[company].fund_size += fundSize;
-                companyMap[company].equity_rate = equityRate;
+                fundMap[fName].fund_size += fundSize;
+                fundMap[fName].equity_rate = equityRate;
             });
 
             // 2. ipo_assets 매핑 누적
             globalRawAssets.forEach(asset => {
+                const fName = (asset.fund_name || '미지정 펀드').trim();
                 const company = (asset.company || '미지정 운용사').trim();
                 const qty = Math.round(Number(asset.quantity || 0));
                 const amt = Number(asset.purchase_amount || 0);
 
-                if (!companyMap[company]) {
-                    companyMap[company] = {
+                if (!fundMap[fName]) {
+                    fundMap[fName] = {
+                        fund_name: fName,
                         company_name: company,
                         fund_size: 0,
                         equity_rate: 0,
@@ -181,76 +187,78 @@
                         total_amt: 0
                     };
                 }
-                companyMap[company].total_qty += qty;
-                companyMap[company].total_amt += amt;
+                fundMap[fName].total_qty += qty;
+                fundMap[fName].total_amt += amt;
             });
 
-            aggregatedCompanies = Object.values(companyMap);
+            aggregatedFunds = Object.values(fundMap);
 
-            // 3. 변환 및 정교한 비중 연산 (소수점 2자리 보장)
-            aggregatedCompanies.forEach(c => {
-                c.total_amt_million = Math.round(c.total_amt / 1000000);
-                totalGrandAmtInMillion += c.total_amt_million;
-                totalGrandFundSize += c.fund_size;
+            // 3. 단위 변환 및 비중 계산 (소수점 2자리)
+            aggregatedFunds.forEach(f => {
+                f.total_amt_million = Math.round(f.total_amt / 1000000);
+                totalGrandAmtInMillion += f.total_amt_million;
+                totalGrandFundSize += f.fund_size;
 
-                const fundSizeInMillion = c.fund_size * 100;
-                c.stock_rate = fundSizeInMillion > 0 ? ((c.total_amt_million / fundSizeInMillion) * 100).toFixed(2) : "0.00";
+                const fundSizeInMillion = f.fund_size * 100;
+                f.stock_rate = fundSizeInMillion > 0 ? ((f.total_amt_million / fundSizeInMillion) * 100).toFixed(2) : "0.00";
             });
 
-            // 금액 내림차순 정렬
-            aggregatedCompanies.sort((a, b) => b.total_amt_million - a.total_amt_million);
+            // 주식금액 기준 내림차순 정렬
+            aggregatedFunds.sort((a, b) => b.total_amt_million - a.total_amt_million);
 
-            // 4. 상단 대시보드 요약 지표 반영
+            // 4. 상단 대시보드 반영
             document.getElementById('grandTotalFundSize').innerText = Math.round(totalGrandFundSize).toLocaleString() + " 억원";
             document.getElementById('grandTotalAmount').innerText = totalGrandAmtInMillion.toLocaleString() + " 백만원";
             
             const overallStockRate = (totalGrandFundSize * 100) > 0 ? ((totalGrandAmtInMillion / (totalGrandFundSize * 100)) * 100).toFixed(2) : "0.00";
             document.getElementById('grandTotalStockRate').innerText = overallStockRate + "%";
 
-            // 운용사 총개수 표기
-            document.getElementById('companyCount').innerText = aggregatedCompanies.length;
+            // 총 펀드 개수 표기
+            document.getElementById('fundCount').innerText = aggregatedFunds.length;
 
             renderMainTable();
         }
 
         function renderMainTable() {
-            const tbody = document.getElementById('companyTableBody');
-            if (aggregatedCompanies.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-400 py-4">등록된 운용사 데이터가 존재하지 않습니다.</td></tr>`;
+            const tbody = document.getElementById('fundTableBody');
+            if (aggregatedFunds.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center text-gray-400 py-4">등록된 펀드 데이터가 존재하지 않습니다.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = aggregatedCompanies.map((c, index) => {
-                const escapedCompany = encodeURIComponent(c.company_name);
+            tbody.innerHTML = aggregatedFunds.map((f, index) => {
+                const escapedFund = encodeURIComponent(f.fund_name);
 
                 return `
-                    <tr class="clickable border-b text-slate-700" onclick="showCompanyDetail('${escapedCompany}')">
+                    <tr class="clickable border-b text-slate-700" onclick="showFundDetail('${escapedFund}')">
                         <td class="text-center font-bold text-gray-400">${index + 1}</td>
-                        <td class="font-medium text-blue-600">${c.company_name}</td>
-                        <td class="num font-semibold text-slate-600">${Math.round(c.fund_size).toLocaleString()}</td>
-                        <td class="num text-gray-500">${c.equity_rate}%</td>
-                        <td class="num text-slate-700">${Math.round(c.total_qty).toLocaleString()}</td>
-                        <td class="num font-bold text-slate-900">${c.total_amt_million.toLocaleString()}</td>
-                        <td class="num font-semibold text-emerald-600">${c.stock_rate}%</td>
+                        <td class="text-gray-500">${f.company_name}</td>
+                        <td class="font-medium text-blue-600">${f.fund_name}</td>
+                        <td class="num font-semibold text-slate-600">${Math.round(f.fund_size).toLocaleString()}</td>
+                        <td class="num text-gray-500">${f.equity_rate}%</td>
+                        <td class="num text-slate-700">${Math.round(f.total_qty).toLocaleString()}</td>
+                        <td class="num font-bold text-slate-900">${f.total_amt_million.toLocaleString()}</td>
+                        <td class="num font-semibold text-emerald-600">${f.stock_rate}%</td>
                     </tr>
                 `;
             }).join('');
         }
 
-        function showCompanyDetail(escapedCompany) {
-            const companyName = decodeURIComponent(escapedCompany);
-            const target = aggregatedCompanies.find(c => c.company_name === companyName);
+        function showFundDetail(escapedFund) {
+            const fundName = decodeURIComponent(escapedFund);
+            const target = aggregatedFunds.find(f => f.fund_name === fundName);
 
             if(!target) return;
 
-            // 요약 우측 정보 반영
-            document.getElementById('detailTitle').innerText = `🏢 [${companyName}] 보유 종목 상세`;
+            // 요약 우측 카드 정보 반영
+            document.getElementById('detailTitle').innerText = `📊 [${fundName}] 보유 종목 상세`;
             document.getElementById('infoFundSize').innerText = Math.round(target.fund_size).toLocaleString() + "억원";
             document.getElementById('infoEquityRate').innerText = target.equity_rate + "%";
             document.getElementById('infoTotalAmt').innerText = target.total_amt_million.toLocaleString() + "백만원";
             document.getElementById('infoStockRate').innerText = target.stock_rate + "%";
 
-            const filtered = globalRawAssets.filter(a => (a.company || '미지정 운용사').trim() === companyName);
+            // 해당 펀드명으로 필터링
+            const filtered = globalRawAssets.filter(a => (a.fund_name || '미지정 펀드').trim() === fundName);
             const detailTbody = document.getElementById('detailContentBody');
             
             let totalQty = 0;
@@ -296,7 +304,7 @@
         }
 
         function downloadExcel() {
-            if(aggregatedCompanies.length === 0) return alert("다운로드할 데이터가 없습니다.");
+            if(aggregatedFunds.length === 0) return alert("다운로드할 데이터가 없습니다.");
 
             let excelHtml = `
                 <meta charset="utf-8">
@@ -305,6 +313,7 @@
                         <tr style="background-color:#f1f5f9; font-weight:bold;">
                             <th>No.</th>
                             <th>운용사명</th>
+                            <th>펀드명</th>
                             <th>펀드금액 (억원)</th>
                             <th>지분율</th>
                             <th>주식수</th>
@@ -315,16 +324,17 @@
                     <tbody>
             `;
 
-            aggregatedCompanies.forEach((c, index) => {
+            aggregatedFunds.forEach((f, index) => {
                 excelHtml += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td>${c.company_name}</td>
-                        <td>${Math.round(c.fund_size)}</td>
-                        <td>${c.equity_rate}%</td>
-                        <td>${Math.round(c.total_qty)}</td>
-                        <td>${c.total_amt_million}</td>
-                        <td>${c.stock_rate}%</td>
+                        <td>${f.company_name}</td>
+                        <td>${f.fund_name}</td>
+                        <td>${Math.round(f.fund_size)}</td>
+                        <td>${f.equity_rate}%</td>
+                        <td>${Math.round(f.total_qty)}</td>
+                        <td>${f.total_amt_million}</td>
+                        <td>${f.stock_rate}%</td>
                     </tr>
                 `;
             });
@@ -335,7 +345,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `공모주펀드_운용사별_보유내역_${new Date().toISOString().slice(0,10)}.xls`;
+            a.download = `공모주펀드_펀드별_보유내역_${new Date().toISOString().slice(0,10)}.xls`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
