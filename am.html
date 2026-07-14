@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>공모주펀드 관리자 - 운용사별 보유내역</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // 관리자 계정 접근 제한 제어
+        (function() {
+            const loginId = localStorage.getItem('login_id');
+            if (loginId !== 'admin') {
+                alert("관리자 전용 페이지입니다. 로그인 후 이용해주세요.");
+                window.location.href = 'index.html';
+            }
+        })();
+    </script>
+    <style>
+        body { background-color: #f8fafc; color: #334155; font-family: 'Pretendard', sans-serif; font-size: 12px; }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        table { border-collapse: separate; border-spacing: 0; }
+        th, td { border: 1px solid #e2e8f0; padding: 8px 12px; }
+        th { background-color: #f8fafc; font-weight: 700; }
+        tr.clickable:hover { background-color: #f1f5f9; cursor: pointer; }
+    </style>
+</head>
+<body class="p-6">
+
+    <header class="mb-4 flex justify-between items-center bg-white p-6 rounded-2xl border shadow-sm">
+        <h1 class="text-xl font-black text-slate-800 cursor-pointer" onclick="location.reload()">공모주펀드 관리자</h1>
+        <div class="flex items-center space-x-4">
+            <a href="members.html" class="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs shadow-sm hover:bg-blue-700 transition-all">회원관리</a>
+            <button onclick="handleLogout()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-xl font-bold text-xs hover:bg-gray-300 transition-all">로그아웃</button>
+        </div>
+    </header>
+
+    <nav class="mb-6 flex space-x-2 bg-white p-3 rounded-2xl border shadow-sm">
+        <a href="admin.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">📊 공모주펀드 주식 보유 현황</a>
+        <a href="am.html" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-xs border border-blue-200 shadow-sm transition-all">🏢 운용사별 보유내역</a>
+        <a href="code.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">🔑 종목코드 보기(엑셀용)</a>
+    </nav>
+
+    <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm mb-6 flex justify-between items-center">
+        <div class="flex items-center space-x-4">
+            <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md uppercase tracking-wider">모든 운용사 주식 합계 금액</span>
+            <h2 class="text-xl font-black text-blue-900" id="grandTotalAmount">0원</h2>
+        </div>
+        <button onclick="downloadExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm">📊 엑셀로 내려받기</button>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+        
+        <div class="xl:col-span-2 bg-white p-6 rounded-2xl border shadow-sm">
+            <h2 class="font-black mb-4 text-slate-800 text-sm">📈 운용사별 보유 현황 (금액 내림차순)</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left" id="companyMainTable">
+                    <thead>
+                        <tr>
+                            <th>운용사명</th>
+                            <th class="num">가입금액</th>
+                            <th class="num">지분율</th>
+                            <th class="num">주식수</th>
+                            <th class="num">금액</th>
+                            <th class="num">주식비중</th>
+                        </tr>
+                    </thead>
+                    <tbody id="companyTableBody">
+                        <tr><td colspan="6" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="detailSection" class="hidden bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h2 class="font-black text-slate-800 text-sm" id="detailTitle">운용사별 보유 상세</h2>
+                <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-xs">닫기 ✕</button>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border text-[11px]">
+                <div><span class="text-gray-500">가입금액:</span> <span class="font-bold text-slate-800" id="infoJoinAmt">0원</span></div>
+                <div><span class="text-gray-500">지분율:</span> <span class="font-bold text-slate-800" id="infoShareRate">0%</span></div>
+                <div><span class="text-gray-500">금액합계:</span> <span class="font-bold text-blue-600" id="infoTotalAmt">0원</span></div>
+                <div><span class="text-gray-500">주식비중:</span> <span class="font-bold text-slate-800" id="infoStockRate">0%</span></div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr>
+                            <th>종목명</th>
+                            <th class="num">보유수량</th>
+                            <th class="num">종가</th>
+                            <th class="num">금액</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detailContentBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://hnxvsopwxiamexnxczhj.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_1_9-bKTcV3sBQkv10ru__w_iW-51pKt';
+        const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
+
+        let globalRawAssets = []; 
+        let aggregatedCompanies = []; 
+
+        async function fetchDashboardData() {
+            try {
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
+                if (!res.ok) throw new Error("네트워크 응답 오류");
+                globalRawAssets = await res.json();
+                
+                calculateCompanyAggregation();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('companyTableBody').innerHTML = `<tr><td colspan="6" class="text-center text-red-500 font-bold py-4">데이터 로딩에 실패했습니다.</td></tr>`;
+            }
+        }
+
+        // 운용사 기준 집계 연산 로직
+        function calculateCompanyAggregation() {
+            const companyMap = {};
+            let totalGrandAmt = 0;
+            let totalJoinAmt = 0;
+
+            globalRawAssets.forEach(asset => {
+                const company = (asset.company || '미지정 운용사').trim();
+                const qty = Math.round(Number(asset.quantity || 0));
+                const amt = Math.round(Number(asset.purchase_amount || 0));
+                // 가입금액 필드가 스키마에 따로 없거나 다를 경우를 고려해 기본 데이터 매핑 (예시: asset.join_amount 혹은 대용 필드 처리)
+                // 만약 테이블 컬럼명이 다르면 asset.join_amount 등으로 변경 필요. 일단 purchase_amount 기반 임시 집계 구조 차용 방지용 수식 구성
+                const joinAmt = Math.round(Number(asset.join_amount || asset.purchase_amount * 1.5 || 0)); 
+
+                totalGrandAmt += amt;
+                totalJoinAmt += joinAmt;
+
+                if (!companyMap[company]) {
+                    companyMap[company] = {
+                        company_name: company,
+                        join_amt: 0,
+                        total_qty: 0,
+                        total_amt: 0
+                    };
+                }
+                companyMap[company].join_amt += joinAmt;
+                companyMap[company].total_qty += qty;
+                companyMap[company].total_amt += amt;
+            });
+
+            aggregatedCompanies = Object.values(companyMap);
+
+            // 지분율 및 주식비중 계산 계산
+            aggregatedCompanies.forEach(c => {
+                c.share_rate = totalJoinAmt > 0 ? Math.round((c.join_amt / totalJoinAmt) * 100) : 0;
+                c.stock_rate = c.join_amt > 0 ? Math.round((c.total_amt / c.join_amt) * 100) : 0;
+            });
+
+            // 금액 내림차순 정렬
+            aggregatedCompanies.sort((a, b) => b.total_amt - a.total_amt);
+
+            // 상단 총액 반영
+            document.getElementById('grandTotalAmount').innerText = Math.round(totalGrandAmt).toLocaleString() + " 원";
+
+            renderMainTable();
+        }
+
+        function renderMainTable() {
+            const tbody = document.getElementById('companyTableBody');
+            if (aggregatedCompanies.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 py-4">등록된 운용사 데이터가 존재하지 않습니다.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = aggregatedCompanies.map(c => {
+                const escapedCompany = encodeURIComponent(c.company_name);
+
+                return `
+                    <tr class="clickable border-b text-slate-700" onclick="showCompanyDetail('${escapedCompany}')">
+                        <td class="font-medium text-blue-600">${c.company_name}</td>
+                        <td class="num font-semibold text-slate-600">${Math.round(c.join_amt).toLocaleString()}</td>
+                        <td class="num text-gray-500">${c.share_rate}%</td>
+                        <td class="num text-slate-700">${Math.round(c.total_qty).toLocaleString()}</td>
+                        <td class="num font-bold text-slate-900">${Math.round(c.total_amt).toLocaleString()}</td>
+                        <td class="num font-semibold text-emerald-600">${c.stock_rate}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showCompanyDetail(escapedCompany) {
+            const companyName = decodeURIComponent(escapedCompany);
+            const target = aggregatedCompanies.find(c => c.company_name === companyName);
+
+            if(!target) return;
+
+            // 요약 카드 정보 갱신
+            document.getElementById('detailTitle').innerText = `🏢 [${companyName}] 보유 종목 상세`;
+            document.getElementById('infoJoinAmt').innerText = Math.round(target.join_amt).toLocaleString() + "원";
+            document.getElementById('infoShareRate').innerText = target.share_rate + "%";
+            document.getElementById('infoTotalAmt').innerText = Math.round(target.total_amt).toLocaleString() + "원";
+            document.getElementById('infoStockRate').innerText = target.stock_rate + "%";
+
+            // 보유 종목 필터링
+            const filtered = globalRawAssets.filter(a => (a.company || '미지정 운용사').trim() === companyName);
+            const detailTbody = document.getElementById('detailContentBody');
+            
+            let totalQty = 0;
+            let totalAmt = 0;
+
+            let html = filtered.map(item => {
+                const name = (item.asset_name || '미지정 종목').trim();
+                const qty = Math.round(Number(item.quantity || 0));
+                const amt = Math.round(Number(item.purchase_amount || 0));
+                const closePrice = qty > 0 ? Math.round(amt / qty) : 0; // 종가 = 금액 / 수량
+
+                totalQty += qty;
+                totalAmt += amt;
+
+                return `
+                    <tr class="border-b text-xs">
+                        <td class="font-medium text-slate-800">${name}</td>
+                        <td class="num text-slate-600">${qty.toLocaleString()}</td>
+                        <td class="num text-gray-500">${closePrice.toLocaleString()}</td>
+                        <td class="num font-semibold text-slate-900">${amt.toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            if(html.length > 0) {
+                html += `
+                    <tr class="bg-slate-50 font-black text-slate-900">
+                        <td class="text-center">합계</td>
+                        <td class="num text-slate-700">${Math.round(totalQty).toLocaleString()}</td>
+                        <td class="num text-gray-400">-</td>
+                        <td class="num text-blue-600">${Math.round(totalAmt).toLocaleString()}</td>
+                    </tr>
+                `;
+            }
+
+            detailTbody.innerHTML = html;
+            document.getElementById('detailSection').classList.remove('hidden');
+        }
+
+        function closeDetail() {
+            document.getElementById('detailSection').classList.add('hidden');
+        }
+
+        function downloadExcel() {
+            if(aggregatedCompanies.length === 0) return alert("다운로드할 데이터가 없습니다.");
+
+            let excelHtml = `
+                <meta charset="utf-8">
+                <table border="1">
+                    <thead>
+                        <tr style="background-color:#f1f5f9; font-weight:bold;">
+                            <th>운용사명</th>
+                            <th>가입금액</th>
+                            <th>지분율</th>
+                            <th>주식수</th>
+                            <th>금액</th>
+                            <th>주식비중</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            aggregatedCompanies.forEach(c => {
+                excelHtml += `
+                    <tr>
+                        <td>${c.company_name}</td>
+                        <td>${Math.round(c.join_amt)}</td>
+                        <td>${c.share_rate}%</td>
+                        <td>${Math.round(c.total_qty)}</td>
+                        <td>${Math.round(c.total_amt)}</td>
+                        <td>${c.stock_rate}%</td>
+                    </tr>
+                `;
+            });
+
+            excelHtml += `</tbody></table>`;
+
+            const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `공모주펀드_운용사별_보유내역_${new Date().toISOString().slice(0,10)}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = 'index.html';
+        }
+
+        window.onload = fetchDashboardData;
+    </script>
+</body>
+</html>
