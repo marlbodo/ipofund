@@ -35,16 +35,26 @@
 
     <nav class="mb-6 flex space-x-2 bg-white p-3 rounded-2xl border shadow-sm">
         <a href="admin.html" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-xs border border-blue-200 shadow-sm transition-all">📊 공모주펀드 주식 보유 현황</a>
-        <a href="am.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">🏢 운용사별 보유내역</a>
+        <a href="am.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">🏢 펀드별 보유내역</a>
         <a href="code.html" class="bg-gray-50 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl font-bold text-xs border border-gray-200 transition-all">🔑 종목코드 보기(엑셀용)</a>
     </nav>
 
-    <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm mb-6 flex justify-between items-center">
-        <div class="flex items-center space-x-4">
-            <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md uppercase tracking-wider">모든 펀드 주식 합계 금액</span>
-            <h2 class="text-xl font-black text-blue-900" id="grandTotalAmount">0원</h2>
+    <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div class="flex flex-wrap items-center gap-6">
+            <div class="flex items-center space-x-2 border-r pr-6 border-blue-200">
+                <span class="text-xs font-bold text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded">모든 펀드 합계</span>
+                <h2 class="text-lg font-black text-slate-800" id="grandTotalFundSize">0억원</h2>
+            </div>
+            <div class="flex items-center space-x-2 border-r pr-6 border-blue-200">
+                <span class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded">주식 합계 금액</span>
+                <h2 class="text-lg font-black text-blue-900" id="grandTotalAmount">0백만원</h2>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded">전체 주식 비중</span>
+                <h2 class="text-lg font-black text-emerald-900" id="grandTotalStockRate">0.00%</h2>
+            </div>
         </div>
-        <button onclick="downloadExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm">📊 엑셀로 내려받기</button>
+        <button onclick="downloadExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm shrink-0">📊 엑셀로 내려받기</button>
     </div>
 
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
@@ -58,7 +68,7 @@
                             <th>종목명</th>
                             <th class="num">보유수량</th>
                             <th class="num">전일종가</th>
-                            <th class="num">금액</th>
+                            <th class="num">금액 (백만원)</th>
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
@@ -81,7 +91,7 @@
                             <th>펀드명</th>
                             <th>구분</th>
                             <th class="num">보유수량</th>
-                            <th class="num">금액</th>
+                            <th class="num">금액 (백만원)</th>
                         </tr>
                     </thead>
                     <tbody id="detailContentBody"></tbody>
@@ -97,13 +107,21 @@
         const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 
         let globalRawAssets = []; 
+        let globalRawFunds = [];
         let aggregatedStocks = []; 
 
         async function fetchDashboardData() {
             try {
-                const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
-                if (!res.ok) throw new Error("네트워크 응답 오류");
-                globalRawAssets = await res.json();
+                // 펀드 합계액 연산을 위해 ipo_funds와 ipo_assets 테이블 동시 로드
+                const [assetsRes, fundsRes] = await Promise.all([
+                    fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers }),
+                    fetch(`${SUPABASE_URL}/rest/v1/ipo_funds`, { headers })
+                ]);
+
+                if (!assetsRes.ok || !fundsRes.ok) throw new Error("네트워크 응답 오류");
+                
+                globalRawAssets = await assetsRes.json();
+                globalRawFunds = await fundsRes.json();
                 
                 calculateStockAggregation();
             } catch (err) {
@@ -114,32 +132,49 @@
 
         function calculateStockAggregation() {
             const stockMap = {};
-            let grandTotal = 0;
+            let totalGrandAmtInMillion = 0;
+            let totalGrandFundSize = 0;
 
+            // 1. 모든 펀드 합계(억원) 연산
+            globalRawFunds.forEach(fund => {
+                totalGrandFundSize += Number(fund.fund_size || 0);
+            });
+
+            // 2. 종목별 자산 집계 및 백만원 단위 처리
             globalRawAssets.forEach(asset => {
                 const name = (asset.asset_name || '미지정 종목').trim();
                 const qty = Math.round(Number(asset.quantity || 0));
-                const amt = Math.round(Number(asset.purchase_amount || 0));
+                const amt = Number(asset.purchase_amount || 0);
 
-                grandTotal += amt;
-
-                const groupKey = name;
-
-                if (!stockMap[groupKey]) {
-                    stockMap[groupKey] = {
+                if (!stockMap[name]) {
+                    stockMap[name] = {
                         asset_name: name,
                         total_qty: 0,
                         total_amt: 0
                     };
                 }
-                stockMap[groupKey].total_qty += qty;
-                stockMap[groupKey].total_amt += amt;
+                stockMap[name].total_qty += qty;
+                stockMap[name].total_amt += amt;
             });
 
             aggregatedStocks = Object.values(stockMap);
-            aggregatedStocks.sort((a, b) => b.total_amt - a.total_amt);
+            
+            // 백만원 단위 변환 및 총액 합산
+            aggregatedStocks.forEach(stock => {
+                stock.total_amt_million = Math.round(stock.total_amt / 1000000);
+                totalGrandAmtInMillion += stock.total_amt_million;
+            });
 
-            document.getElementById('grandTotalAmount').innerText = Math.round(grandTotal).toLocaleString() + " 원";
+            // 금액 기준 내림차순 정렬
+            aggregatedStocks.sort((a, b) => b.total_amt_million - a.total_amt_million);
+
+            // 3. 대시보드 지표 카드 출력 제어
+            document.getElementById('grandTotalFundSize').innerText = Math.round(totalGrandFundSize).toLocaleString() + " 억원";
+            document.getElementById('grandTotalAmount').innerText = totalGrandAmtInMillion.toLocaleString() + " 백만원";
+            
+            // 전체 주식 비중 산식 적용 (소수점 2자리)
+            const overallStockRate = (totalGrandFundSize * 100) > 0 ? ((totalGrandAmtInMillion / (totalGrandFundSize * 100)) * 100).toFixed(2) : "0.00";
+            document.getElementById('grandTotalStockRate').innerText = overallStockRate + "%";
 
             renderMainTable();
         }
@@ -157,111 +192,4 @@
 
                 return `
                     <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedName}')">
-                        <td class="font-medium">${stock.asset_name}</td>
-                        <td class="num font-semibold">${Math.round(stock.total_qty).toLocaleString()}</td>
-                        <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
-                        <td class="num font-bold text-slate-900">${Math.round(stock.total_amt).toLocaleString()}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function showStockDetail(escapedName) {
-            const name = decodeURIComponent(escapedName);
-            
-            document.getElementById('detailTitle').innerText = `📊 [${name}] 펀드별 보유 현황`;
-            
-            const filtered = globalRawAssets.filter(a => {
-                const n = (a.asset_name || '미지정 종목').trim();
-                return n === name;
-            });
-            
-            const detailTbody = document.getElementById('detailContentBody');
-            let totalQty = 0;
-            let totalAmt = 0;
-
-            let html = filtered.map(item => {
-                const qty = Math.round(Number(item.quantity || 0));
-                const amt = Math.round(Number(item.purchase_amount || 0));
-                totalQty += qty;
-                totalAmt += amt;
-
-                return `
-                    <tr class="border-b text-xs">
-                        <td>${item.company || '-'}</td>
-                        <td class="font-medium text-slate-800">${item.fund_name || '-'}</td>
-                        <td><span class="px-2 py-0.5 rounded text-[10px] font-bold ${item.fund_type === '본펀드' ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'}">${item.fund_type || '본펀드'}</span></td>
-                        <td class="num">${qty.toLocaleString()}</td>
-                        <td class="num font-semibold text-slate-900">${amt.toLocaleString()}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            if(html.length > 0) {
-                html += `
-                    <tr class="bg-slate-50 font-black text-slate-900">
-                        <td colspan="3" class="text-center">합계</td>
-                        <td class="num">${Math.round(totalQty).toLocaleString()}</td>
-                        <td class="num text-blue-600">${Math.round(totalAmt).toLocaleString()}</td>
-                    </tr>
-                `;
-            }
-
-            detailTbody.innerHTML = html;
-            document.getElementById('detailSection').classList.remove('hidden');
-        }
-
-        function closeDetail() {
-            document.getElementById('detailSection').classList.add('hidden');
-        }
-
-        function downloadExcel() {
-            if(aggregatedStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
-
-            let excelHtml = `
-                <meta charset="utf-8">
-                <table border="1">
-                    <thead>
-                        <tr style="background-color:#f1f5f9; font-weight:bold;">
-                            <th>종목명</th>
-                            <th>보유수량</th>
-                            <th>전일종가</th>
-                            <th>금액</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            aggregatedStocks.forEach(stock => {
-                const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
-                excelHtml += `
-                    <tr>
-                        <td>${stock.asset_name}</td>
-                        <td>${Math.round(stock.total_qty)}</td>
-                        <td>${avgPrice}</td>
-                        <td>${Math.round(stock.total_amt)}</td>
-                    </tr>
-                `;
-            });
-
-            excelHtml += `</tbody></table>`;
-
-            const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `공모주펀드_종목별_보유현황_${new Date().toISOString().slice(0,10)}.xls`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
-
-        function handleLogout() {
-            localStorage.clear();
-            window.location.href = 'index.html';
-        }
-
-        window.onload = fetchDashboardData;
-    </script>
-</body>
-</html>
+                        <td class="font-medium text-blue-600">${stock.asset_name}
