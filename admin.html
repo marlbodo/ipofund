@@ -111,23 +111,31 @@
         let aggregatedStocks = []; 
 
         async function fetchDashboardData() {
+            // 1. ipo_assets 우선 호출
             try {
-                // 펀드 합계액 연산을 위해 ipo_funds와 ipo_assets 테이블 동시 로드
-                const [assetsRes, fundsRes] = await Promise.all([
-                    fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers }),
-                    fetch(`${SUPABASE_URL}/rest/v1/ipo_funds`, { headers })
-                ]);
-
-                if (!assetsRes.ok || !fundsRes.ok) throw new Error("네트워크 응답 오류");
-                
+                const assetsRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
+                if (!assetsRes.ok) throw new Error("assets 로딩 실패");
                 globalRawAssets = await assetsRes.json();
-                globalRawFunds = await fundsRes.json();
-                
-                calculateStockAggregation();
             } catch (err) {
-                console.error(err);
-                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="4" class="text-center text-red-500 font-bold py-4">데이터 로딩에 실패했습니다.</td></tr>`;
+                console.error("Assets API 에러:", err);
+                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="4" class="text-center text-red-500 font-bold py-4">주식 보유 데이터를 불러오지 못했습니다.</td></tr>`;
+                return;
             }
+
+            // 2. ipo_funds 호출 (실패하더라도 전체 렌더링에 영향 없도록 개별 try-catch 구성)
+            try {
+                const fundsRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds`, { headers });
+                if (fundsRes.ok) {
+                    globalRawFunds = await fundsRes.json();
+                } else {
+                    console.warn("funds API 응답 에러 (RLS 설정 확인 필요)");
+                }
+            } catch (err) {
+                console.error("Funds API 에러:", err);
+            }
+            
+            // 데이터 분석 및 화면 렌더링 시작
+            calculateStockAggregation();
         }
 
         function calculateStockAggregation() {
@@ -135,12 +143,14 @@
             let totalGrandAmtInMillion = 0;
             let totalGrandFundSize = 0;
 
-            // 1. 모든 펀드 합계(억원) 연산
-            globalRawFunds.forEach(fund => {
-                totalGrandFundSize += Number(fund.fund_size || 0);
-            });
+            // 펀드 합계액 연산 (안전 처리)
+            if (globalRawFunds && globalRawFunds.length > 0) {
+                globalRawFunds.forEach(fund => {
+                    totalGrandFundSize += Number(fund.fund_size || 0);
+                });
+            }
 
-            // 2. 종목별 자산 집계 및 백만원 단위 처리
+            // 종목별 자산 집계
             globalRawAssets.forEach(asset => {
                 const name = (asset.asset_name || '미지정 종목').trim();
                 const qty = Math.round(Number(asset.quantity || 0));
@@ -159,20 +169,17 @@
 
             aggregatedStocks = Object.values(stockMap);
             
-            // 백만원 단위 변환 및 총액 합산
             aggregatedStocks.forEach(stock => {
                 stock.total_amt_million = Math.round(stock.total_amt / 1000000);
                 totalGrandAmtInMillion += stock.total_amt_million;
             });
 
-            // 금액 기준 내림차순 정렬
             aggregatedStocks.sort((a, b) => b.total_amt_million - a.total_amt_million);
 
-            // 3. 대시보드 지표 카드 출력 제어
+            // 대시보드 카드 정보 반영
             document.getElementById('grandTotalFundSize').innerText = Math.round(totalGrandFundSize).toLocaleString() + " 억원";
             document.getElementById('grandTotalAmount').innerText = totalGrandAmtInMillion.toLocaleString() + " 백만원";
             
-            // 전체 주식 비중 산식 적용 (소수점 2자리)
             const overallStockRate = (totalGrandFundSize * 100) > 0 ? ((totalGrandAmtInMillion / (totalGrandFundSize * 100)) * 100).toFixed(2) : "0.00";
             document.getElementById('grandTotalStockRate').innerText = overallStockRate + "%";
 
@@ -192,4 +199,109 @@
 
                 return `
                     <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedName}')">
-                        <td class="font-medium text-blue-600">${stock.asset_name}
+                        <td class="font-medium text-blue-600">${stock.asset_name}</td>
+                        <td class="num font-semibold text-slate-600">${Math.round(stock.total_qty).toLocaleString()}</td>
+                        <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
+                        <td class="num font-bold text-slate-900">${stock.total_amt_million.toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showStockDetail(escapedName) {
+            const name = decodeURIComponent(escapedName);
+            document.getElementById('detailTitle').innerText = `📊 [${name}] 펀드별 보유 현황`;
+            
+            const filtered = globalRawAssets.filter(a => (a.asset_name || '미지정 종목').trim() === name);
+            const detailTbody = document.getElementById('detailContentBody');
+            
+            let totalQty = 0;
+            let totalAmtMillion = 0;
+
+            let html = filtered.map(item => {
+                const qty = Math.round(Number(item.quantity || 0));
+                const amtOriginal = Number(item.purchase_amount || 0);
+                const amtMillion = Math.round(amtOriginal / 1000000); 
+                
+                totalQty += qty;
+                totalAmtMillion += amtMillion;
+
+                return `
+                    <tr class="border-b text-xs">
+                        <td>${item.company || '-'}</td>
+                        <td class="font-medium text-slate-800">${item.fund_name || '-'}</td>
+                        <td><span class="px-2 py-0.5 rounded text-[10px] font-bold ${item.fund_type === '본펀드' ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'}">${item.fund_type || '본펀드'}</span></td>
+                        <td class="num text-slate-600">${qty.toLocaleString()}</td>
+                        <td class="num font-semibold text-slate-900">${amtMillion.toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            if(html.length > 0) {
+                html += `
+                    <tr class="bg-slate-50 font-black text-slate-900">
+                        <td colspan="3" class="text-center">합계</td>
+                        <td class="num text-slate-700">${Math.round(totalQty).toLocaleString()}</td>
+                        <td class="num text-blue-600">${totalAmtMillion.toLocaleString()}</td>
+                    </tr>
+                `;
+            }
+
+            detailTbody.innerHTML = html;
+            document.getElementById('detailSection').classList.remove('hidden');
+        }
+
+        function closeDetail() {
+            document.getElementById('detailSection').classList.add('hidden');
+        }
+
+        function downloadExcel() {
+            if(aggregatedStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
+
+            let excelHtml = `
+                <meta charset="utf-8">
+                <table border="1">
+                    <thead>
+                        <tr style="background-color:#f1f5f9; font-weight:bold;">
+                            <th>종목명</th>
+                            <th>보유수량</th>
+                            <th>전일종가</th>
+                            <th>금액 (백만원)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            aggregatedStocks.forEach(stock => {
+                const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
+                excelHtml += `
+                    <tr>
+                        <td>${stock.asset_name}</td>
+                        <td>${Math.round(stock.total_qty)}</td>
+                        <td>${avgPrice}</td>
+                        <td>${stock.total_amt_million}</td>
+                    </tr>
+                `;
+            });
+
+            excelHtml += `</tbody></table>`;
+
+            const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `공모주펀드_종목별_보유현황_${new Date().toISOString().slice(0,10)}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = 'index.html';
+        }
+
+        window.onload = fetchDashboardData;
+    </script>
+</body>
+</html>
