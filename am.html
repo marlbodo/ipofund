@@ -229,4 +229,132 @@
                 const escapedFund = encodeURIComponent(f.fund_name);
 
                 return `
-                    <tr class="clickable border-b text-slate-700" onclick="show
+                    <tr class="clickable border-b text-slate-700" onclick="showFundDetail('${escapedFund}')">
+                        <td class="text-center font-bold text-gray-400">${index + 1}</td>
+                        <td class="text-gray-500">${f.company_name}</td>
+                        <td class="font-medium text-blue-600">${f.fund_name}</td>
+                        <td class="num font-semibold text-slate-600">${Math.round(f.fund_size).toLocaleString()}</td>
+                        <td class="num text-gray-500">${Number(f.equity_rate).toFixed(2)}%</td>
+                        <td class="num text-slate-700">${Math.round(f.total_qty).toLocaleString()}</td>
+                        <td class="num font-bold text-slate-900">${Math.round(f.total_amt).toLocaleString()}</td>
+                        <td class="num font-semibold text-emerald-600">${f.stock_rate}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showFundDetail(escapedFund) {
+            const fundName = decodeURIComponent(escapedFund);
+            const target = aggregatedFunds.find(f => f.fund_name === fundName);
+
+            if(!target) return;
+
+            // 요약 우측 카드 정보 반영
+            document.getElementById('detailTitle').innerText = `📊 [${fundName}] 보유 종목 상세`;
+            document.getElementById('infoFundSize').innerText = Math.round(target.fund_size).toLocaleString() + "억원";
+            document.getElementById('infoEquityRate').innerText = Number(target.equity_rate).toFixed(2) + "%";
+            document.getElementById('infoTotalAmt').innerText = Math.round(target.total_amt).toLocaleString() + "원";
+            document.getElementById('infoStockRate').innerText = target.stock_rate + "%";
+
+            // 해당 펀드명으로 필터링
+            const filtered = globalRawAssets.filter(a => (a.fund_name || '미지정 펀드').trim() === fundName);
+            const detailTbody = document.getElementById('detailContentBody');
+            
+            let totalQty = 0;
+            let totalAmt = 0;
+
+            let html = filtered.map(item => {
+                const name = (item.asset_name || '미지정 종목').trim();
+                const qty = Math.round(Number(item.quantity || 0));
+                const amtOriginal = Number(item.purchase_amount || 0);
+                const closePrice = qty > 0 ? Math.round(amtOriginal / qty) : 0; 
+
+                totalQty += qty;
+                totalAmt += amtOriginal;
+
+                return `
+                    <tr class="border-b text-xs">
+                        <td class="font-medium text-slate-800">${name}</td>
+                        <td class="num text-slate-600">${qty.toLocaleString()}</td>
+                        <td class="num text-gray-500">${closePrice.toLocaleString()}</td>
+                        <td class="num font-semibold text-slate-900">${Math.round(amtOriginal).toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            if(html.length > 0) {
+                html += `
+                    <tr class="bg-slate-50 font-black text-slate-900">
+                        <td class="text-center">합계</td>
+                        <td class="num text-slate-700">${Math.round(totalQty).toLocaleString()}</td>
+                        <td class="num text-gray-400">-</td>
+                        <td class="num text-blue-600">${Math.round(totalAmt).toLocaleString()}</td>
+                    </tr>
+                `;
+            }
+
+            detailTbody.innerHTML = html;
+            document.getElementById('detailSection').classList.remove('hidden');
+        }
+
+        function closeDetail() {
+            document.getElementById('detailSection').classList.add('hidden');
+        }
+
+        function downloadExcel() {
+            if(aggregatedFunds.length === 0) return alert("다운로드할 데이터가 없습니다.");
+
+            let excelHtml = `
+                <meta charset="utf-8">
+                <table border="1">
+                    <thead>
+                        <tr style="background-color:#f1f5f9; font-weight:bold;">
+                            <th>No.</th>
+                            <th>운용사명</th>
+                            <th>펀드명</th>
+                            <th>펀드금액 (억원)</th>
+                            <th>지분율</th>
+                            <th>주식수</th>
+                            <th>주식금액 (원)</th>
+                            <th>주식비중</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            aggregatedFunds.forEach((f, index) => {
+                excelHtml += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${f.company_name}</td>
+                        <td>${f.fund_name}</td>
+                        <td>${Math.round(f.fund_size)}</td>
+                        <td>${Number(f.equity_rate).toFixed(2)}%</td>
+                        <td>${Math.round(f.total_qty)}</td>
+                        <td>${Math.round(f.total_amt)}</td>
+                        <td>${f.stock_rate}%</td>
+                    </tr>
+                `;
+            });
+
+            excelHtml += `</tbody></table>`;
+
+            const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `공모주펀드_펀드별_보유내역_${new Date().toISOString().slice(0,10)}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = 'index.html';
+        }
+
+        window.onload = fetchDashboardData;
+    </script>
+</body>
+</html>
