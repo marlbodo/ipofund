@@ -66,14 +66,15 @@
                     <thead>
                         <tr>
                             <th class="w-12 text-center">No.</th>
-                            <th>종목명 (단축코드)</th>
+                            <th>종목명</th>
+                            <th class="w-24">단축코드</th>
                             <th class="num">보유수량</th>
                             <th class="num">전일종가</th>
                             <th class="num">금액(원)</th>
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
-                        <tr><td colspan="5" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
+                        <tr><td colspan="6" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -165,7 +166,7 @@
                 globalRawAssets = await assetsRes.json();
             } catch (err) {
                 console.error("Assets API 에러:", err);
-                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="5" class="text-center text-red-500 font-bold py-4">주식 보유 데이터를 불러오지 못했습니다.</td></tr>`;
+                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="6" class="text-center text-red-500 font-bold py-4">주식 보유 데이터를 불러오지 못했습니다.</td></tr>`;
                 return;
             }
 
@@ -237,7 +238,7 @@
         function renderMainTable() {
             const tbody = document.getElementById('stockTableBody');
             if (aggregatedStocks.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 py-4">등록된 주식 명세 데이터가 존재하지 않습니다.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 py-4">등록된 주식 명세 데이터가 존재하지 않습니다.</td></tr>`;
                 return;
             }
 
@@ -247,21 +248,17 @@
                 
                 // 단축 6자리 코드로 역산 진행
                 const shortCode = convertToShortCode(stock.raw_code);
-                // 단축코드가 변환 완료되어 존재하면 종목명 바로 우측에 회색 배지 형태로 렌더링
-                const codeBadgeHtml = shortCode 
-                    ? `<span class="inline-block ml-2 px-1.5 py-0.5 text-[10px] font-mono font-bold bg-slate-100 text-slate-500 rounded border border-slate-200">${shortCode}</span>` 
-                    : '';
+                // 단축코드가 변환 완료되어 존재하면 별도의 칸에 표시할 텍스트 지정
+                const codeText = shortCode ? shortCode : '-';
 
                 return `
-                    <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedName}')">
-                        <td class="text-center font-bold text-gray-400">${index + 1}</td>
-                        <td class="font-medium text-blue-600 flex items-center">
-                            <span>${stock.asset_name}</span>
-                            ${codeBadgeHtml}
-                        </td>
-                        <td class="num font-semibold text-slate-600">${Math.round(stock.total_qty).toLocaleString()}</td>
-                        <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
-                        <td class="num font-bold text-slate-900">${Math.round(stock.total_amt).toLocaleString()}</td>
+                    <tr class="clickable border-b text-slate-700 font-normal" onclick="showStockDetail('${escapedName}')">
+                        <td class="text-center text-gray-400 font-normal">${index + 1}</td>
+                        <td class="text-blue-600 font-normal">${stock.asset_name}</td>
+                        <td class="font-mono text-slate-500 font-normal">${codeText}</td>
+                        <td class="num text-slate-600 font-normal">${Math.round(stock.total_qty).toLocaleString()}</td>
+                        <td class="num text-gray-500 font-normal">${avgPrice.toLocaleString()}</td>
+                        <td class="num text-slate-900 font-normal">${Math.round(stock.total_amt).toLocaleString()}</td>
                     </tr>
                 `;
             }).join('');
