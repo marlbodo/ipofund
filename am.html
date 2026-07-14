@@ -235,7 +235,7 @@
                         <td class="text-gray-500">${f.company_name}</td>
                         <td class="font-medium text-blue-600">${f.fund_name}</td>
                         <td class="num font-semibold text-slate-600">${Math.round(f.fund_size).toLocaleString()}</td>
-                        <td class="num text-gray-500">${f.equity_rate}%</td>
+                        <td class="num text-gray-500">${Number(f.equity_rate).toFixed(2)}%</td>
                         <td class="num text-slate-700">${Math.round(f.total_qty).toLocaleString()}</td>
                         <td class="num font-bold text-slate-900">${f.total_amt_million.toLocaleString()}</td>
                         <td class="num font-semibold text-emerald-600">${f.stock_rate}%</td>
@@ -253,7 +253,7 @@
             // 요약 우측 카드 정보 반영
             document.getElementById('detailTitle').innerText = `📊 [${fundName}] 보유 종목 상세`;
             document.getElementById('infoFundSize').innerText = Math.round(target.fund_size).toLocaleString() + "억원";
-            document.getElementById('infoEquityRate').innerText = target.equity_rate + "%";
+            document.getElementById('infoEquityRate').innerText = Number(target.equity_rate).toFixed(2) + "%";
             document.getElementById('infoTotalAmt').innerText = target.total_amt_million.toLocaleString() + "백만원";
             document.getElementById('infoStockRate').innerText = target.stock_rate + "%";
 
@@ -331,7 +331,7 @@
                         <td>${f.company_name}</td>
                         <td>${f.fund_name}</td>
                         <td>${Math.round(f.fund_size)}</td>
-                        <td>${f.equity_rate}%</td>
+                        <td>${Number(f.equity_rate).toFixed(2)}%</td>
                         <td>${Math.round(f.total_qty)}</td>
                         <td>${f.total_amt_million}</td>
                         <td>${f.stock_rate}%</td>
