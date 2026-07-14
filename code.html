@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>종목코드 관리(엑셀용) | 공모주펀드 관리자</title>
+    <title>종목코드 전체 보기(엑셀용) | 공모주펀드 관리자</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         // 관리자 계정 접근 제한 제어
@@ -40,23 +40,23 @@
 
     <div class="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-sm mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-            <h2 class="text-base font-black text-white">🔑 HTS/MTS 주식 조회용 올바른 종목코드 리스트</h2>
-            <p class="text-xs text-slate-300 mt-1">국제표준코드(KRxxx) 등 부적합한 포맷을 제외한 <strong>6자리 규격(숫자/영문) 코드</strong>만 추출 및 매핑했습니다.</p>
+            <h2 class="text-base font-black text-white">🔑 전체 종목코드 리스트 (전체 출력)</h2>
+            <p class="text-xs text-slate-300 mt-1">필터링 없이 데이터베이스(DB)에 저장된 모든 주식명과 모든 코드를 가공 없이 나열합니다.</p>
         </div>
         <div class="flex items-center space-x-3 shrink-0">
             <span class="text-xs font-bold text-slate-300 bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600">
-                추출된 유효 종목: <span id="validCodeCount" class="text-emerald-400 font-extrabold">0</span>개
+                조회된 전체 항목: <span id="totalCodeCount" class="text-emerald-400 font-extrabold">0</span>개
             </span>
             <button onclick="downloadCodeExcel()" class="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-1.5">
-                📊 정제 리스트 엑셀로 저장하기
+                📊 전체 리스트 엑셀로 저장하기
             </button>
         </div>
     </div>
 
     <div class="bg-white p-6 rounded-2xl border shadow-sm max-w-3xl mx-auto">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="font-black text-slate-800 text-sm">📈 정제 완료된 종목코드 목록</h2>
-            <span class="text-[11px] text-slate-400">※ 데이터가 비어있거나 규칙에 어긋나는 항목은 자동으로 제외되었습니다.</span>
+            <h2 class="font-black text-slate-800 text-sm">📈 전체 종목코드 목록</h2>
+            <span class="text-[11px] text-slate-400">※ 데이터베이스에 기록된 내용이 그대로 표기됩니다.</span>
         </div>
         
         <div class="overflow-x-auto">
@@ -65,11 +65,11 @@
                     <tr>
                         <th class="w-16 text-center">No.</th>
                         <th>종목명</th>
-                        <th class="w-48">종목코드 (6자리)</th>
+                        <th class="w-48">종목코드 (원본 그대로)</th>
                     </tr>
                 </thead>
                 <tbody id="codeTableBody">
-                    <tr><td colspan="3" class="text-center text-gray-400 py-6">데이터를 불러와 정제하는 중입니다...</td></tr>
+                    <tr><td colspan="3" class="text-center text-gray-400 py-6">데이터를 불러오는 중입니다...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -80,16 +80,16 @@
         const SUPABASE_KEY = 'sb_publishable_1_9-bKTcV3sBQkv10ru__w_iW-51pKt';
         const headers = { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 
-        let purifiedStocks = []; // 정제 및 중복 제거 완료된 최종 배열
+        let rawStocks = []; // 중복 제거만 수행한 원본 보존 배열
 
-        async function fetchAndPurifyStockCodes() {
+        async function fetchAllStockCodes() {
             try {
                 // Supabase에서 자산 원본 데이터 호출
                 const res = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
                 if (!res.ok) throw new Error("데이터 로딩 실패");
                 
                 const rawAssets = await res.json();
-                purifyData(rawAssets);
+                processRawData(rawAssets);
             } catch (err) {
                 console.error("API 연동 에러:", err);
                 document.getElementById('codeTableBody').innerHTML = `
@@ -98,45 +98,40 @@
             }
         }
 
-        function purifyData(assets) {
+        function processRawData(assets) {
             const stockMap = {};
-            // 올바른 종목코드 정규식: 오직 영문과 숫자로만 이루어진 6글자
-            const validCodePattern = /^[A-Za-z0-9]{6}$/;
 
             assets.forEach(asset => {
                 const name = (asset.asset_name || '').trim();
-                // DB의 필드명이 'asset_code' 혹은 'ticker'일 경우에 대응하여 안전하게 추출
-                let code = (asset.asset_code || asset.ticker || asset.stock_code || '').trim();
+                // 원본에 저장된 코드 그대로 추출 (공백 제거만 진행)
+                const code = (asset.asset_code || asset.ticker || asset.stock_code || '').trim();
 
-                if (name && code) {
-                    // 특수문자나 한글, 혹은 KR로 시작하는 코드 제거 후 6글자 규격 검증
-                    if (validCodePattern.test(code)) {
-                        if (!stockMap[name]) {
-                            stockMap[name] = code;
-                        }
-                    }
+                if (name) {
+                    // 동일한 종목명이 여러 개 존재할 수 있으므로, 키값으로 중복만 묶어줍니다.
+                    // 코드가 비어 있는 주식이더라도 일단 공백으로 채워 다 보여줍니다.
+                    stockMap[name] = code || '-';
                 }
             });
 
-            // Map 객체를 2차원 배열 형태로 정렬 및 저장 (종목명 가나다순 정렬)
-            purifiedStocks = Object.keys(stockMap).map(name => ({
+            // 종목명 기준으로 가나다순 정렬
+            rawStocks = Object.keys(stockMap).map(name => ({
                 asset_name: name,
                 asset_code: stockMap[name]
             })).sort((a, b) => a.asset_name.localeCompare(b.asset_name, 'ko'));
 
-            // 개수 바인딩 및 렌더링
-            document.getElementById('validCodeCount').innerText = purifiedStocks.length;
+            // 개수 바인딩 및 화면 렌더링
+            document.getElementById('totalCodeCount').innerText = rawStocks.length;
             renderCodeTable();
         }
 
         function renderCodeTable() {
             const tbody = document.getElementById('codeTableBody');
-            if (purifiedStocks.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-6">규격에 일치하는 정상 종목코드가 없습니다.</td></tr>`;
+            if (rawStocks.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-6">조회할 주식 데이터가 존재하지 않습니다.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = purifiedStocks.map((stock, index) => `
+            tbody.innerHTML = rawStocks.map((stock, index) => `
                 <tr class="hover:bg-slate-50 border-b text-slate-700">
                     <td class="text-center font-bold text-gray-400">${index + 1}</td>
                     <td class="font-medium text-slate-900">${stock.asset_name}</td>
@@ -145,9 +140,9 @@
             `).join('');
         }
 
-        // 종목명, 종목코드 데이터 엑셀 내보내기 함수
+        // 전체 주식명, 종목코드 데이터 엑셀 파일 다운로드
         function downloadCodeExcel() {
-            if (purifiedStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
+            if (rawStocks.length === 0) return alert("다운로드할 데이터가 없습니다.");
 
             let excelHtml = `
                 <meta charset="utf-8">
@@ -161,7 +156,7 @@
                     <tbody>
             `;
 
-            purifiedStocks.forEach(stock => {
+            rawStocks.forEach(stock => {
                 excelHtml += `
                     <tr style="height:25px;">
                         <td style="font-family:'Malgun Gothic'; text-align:left;">${stock.asset_name}</td>
@@ -176,7 +171,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `공모주펀드_종목코드_정제리스트_${new Date().toISOString().slice(0,10)}.xls`;
+            a.download = `공모주펀드_전체_종목코드리스트_${new Date().toISOString().slice(0,10)}.xls`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -187,8 +182,8 @@
             window.location.href = 'index.html';
         }
 
-        // 페이지 로드 시 즉시 데이터 호출 및 정제 실행
-        window.onload = fetchAndPurifyStockCodes;
+        // 페이지 로드 시 원본 데이터 즉시 불러오기
+        window.onload = fetchAllStockCodes;
     </script>
 </body>
 </html>
