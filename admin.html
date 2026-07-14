@@ -65,6 +65,7 @@
                 <table class="w-full text-left" id="stockMainTable">
                     <thead>
                         <tr>
+                            <th class="w-12 text-center">No.</th>
                             <th>종목명</th>
                             <th class="num">보유수량</th>
                             <th class="num">전일종가</th>
@@ -72,7 +73,7 @@
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
-                        <tr><td colspan="4" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
+                        <tr><td colspan="5" class="text-center text-gray-400 py-4">데이터를 불러오는 중입니다...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -111,18 +112,16 @@
         let aggregatedStocks = []; 
 
         async function fetchDashboardData() {
-            // 1. ipo_assets 우선 호출
             try {
                 const assetsRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
                 if (!assetsRes.ok) throw new Error("assets 로딩 실패");
                 globalRawAssets = await assetsRes.json();
             } catch (err) {
                 console.error("Assets API 에러:", err);
-                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="4" class="text-center text-red-500 font-bold py-4">주식 보유 데이터를 불러오지 못했습니다.</td></tr>`;
+                document.getElementById('stockTableBody').innerHTML = `<tr><td colspan="5" class="text-center text-red-500 font-bold py-4">주식 보유 데이터를 불러오지 못했습니다.</td></tr>`;
                 return;
             }
 
-            // 2. ipo_funds 호출 (실패하더라도 전체 렌더링에 영향 없도록 개별 try-catch 구성)
             try {
                 const fundsRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_funds`, { headers });
                 if (fundsRes.ok) {
@@ -134,7 +133,6 @@
                 console.error("Funds API 에러:", err);
             }
             
-            // 데이터 분석 및 화면 렌더링 시작
             calculateStockAggregation();
         }
 
@@ -143,14 +141,12 @@
             let totalGrandAmt = 0;
             let totalGrandFundSize = 0;
 
-            // 펀드 합계액 연산 (안전 처리)
             if (globalRawFunds && globalRawFunds.length > 0) {
                 globalRawFunds.forEach(fund => {
                     totalGrandFundSize += Number(fund.fund_size || 0);
                 });
             }
 
-            // 종목별 자산 집계 (원 단위 원본 보존)
             globalRawAssets.forEach(asset => {
                 const name = (asset.asset_name || '미지정 종목').trim();
                 const qty = Math.round(Number(asset.quantity || 0));
@@ -173,14 +169,11 @@
                 totalGrandAmt += stock.total_amt;
             });
 
-            // 주식 보유 금액 내림차순 정렬
             aggregatedStocks.sort((a, b) => b.total_amt - a.total_amt);
 
-            // 대시보드 카드 정보 반영
             document.getElementById('grandTotalFundSize').innerText = Math.round(totalGrandFundSize).toLocaleString() + " 억원";
             document.getElementById('grandTotalAmount').innerText = Math.round(totalGrandAmt).toLocaleString() + " 원";
             
-            // 주식 비중 공식: (주식 합계 원화 / (펀드 합계 억원 * 1억)) * 100
             const totalFundSizeInWon = totalGrandFundSize * 100000000;
             const overallStockRate = totalFundSizeInWon > 0 ? ((totalGrandAmt / totalFundSizeInWon) * 100).toFixed(2) : "0.00";
             document.getElementById('grandTotalStockRate').innerText = overallStockRate + "%";
@@ -191,16 +184,17 @@
         function renderMainTable() {
             const tbody = document.getElementById('stockTableBody');
             if (aggregatedStocks.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 py-4">등록된 주식 명세 데이터가 존재하지 않습니다.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 py-4">등록된 주식 명세 데이터가 존재하지 않습니다.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = aggregatedStocks.map(stock => {
+            tbody.innerHTML = aggregatedStocks.map((stock, index) => {
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
                 const escapedName = encodeURIComponent(stock.asset_name);
 
                 return `
                     <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedName}')">
+                        <td class="text-center font-bold text-gray-400">${index + 1}</td>
                         <td class="font-medium text-blue-600">${stock.asset_name}</td>
                         <td class="num font-semibold text-slate-600">${Math.round(stock.total_qty).toLocaleString()}</td>
                         <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
@@ -264,6 +258,7 @@
                 <table border="1">
                     <thead>
                         <tr style="background-color:#f1f5f9; font-weight:bold;">
+                            <th>No.</th>
                             <th>종목명</th>
                             <th>보유수량</th>
                             <th>전일종가</th>
@@ -273,10 +268,11 @@
                     <tbody>
             `;
 
-            aggregatedStocks.forEach(stock => {
+            aggregatedStocks.forEach((stock, index) => {
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
                 excelHtml += `
                     <tr>
+                        <td>${index + 1}</td>
                         <td>${stock.asset_name}</td>
                         <td>${Math.round(stock.total_qty)}</td>
                         <td>${avgPrice}</td>
