@@ -66,7 +66,7 @@
                     <thead>
                         <tr>
                             <th class="w-12 text-center">No.</th>
-                            <th>종목명</th>
+                            <th>종목명 (단축코드)</th>
                             <th class="num">보유수량</th>
                             <th class="num">전일종가</th>
                             <th class="num">금액(원)</th>
@@ -143,8 +143,22 @@
         let globalRawFunds = [];
         let aggregatedStocks = []; 
 
+        // 12자리 ISIN 혹은 임의 규격 코드를 단축 6자리 주식코드값으로 실시간 변환하는 함수
+        function convertToShortCode(rawCode) {
+            if (!rawCode) return "";
+            const cleaned = rawCode.trim().toUpperCase();
+            const isinPattern = /^KR[0-9A-Z]{10}$/;
+            
+            if (isinPattern.test(cleaned)) {
+                return cleaned.substring(3, 9); // 'KR7...' 구조에서 뒤의 6자리 숫자만 추출
+            }
+            if (/^[A-Z0-9]{6}$/.test(cleaned)) {
+                return cleaned; // 이미 6자리 포맷이면 그대로 반환
+            }
+            return ""; // 변환 규칙에 부합하지 않으면 노출하지 않음
+        }
+
         async function fetchDashboardData() {
-            // 기본 대시보드 주식 데이터 호출
             try {
                 const assetsRes = await fetch(`${SUPABASE_URL}/rest/v1/ipo_assets`, { headers });
                 if (!assetsRes.ok) throw new Error("assets 로딩 실패");
@@ -167,7 +181,6 @@
             }
             
             calculateStockAggregation();
-            // 페이지 로드 시 DB에 직접 저장된 파일 목록도 함께 가져오기
             fetchUploadedFiles();
         }
 
@@ -186,13 +199,18 @@
                 const name = (asset.asset_name || '미지정 종목').trim();
                 const qty = Math.round(Number(asset.quantity || 0));
                 const amt = Number(asset.purchase_amount || 0);
+                // 주식코드 원본 필드 파싱
+                const code = (asset.asset_code || asset.ticker || asset.stock_code || '').trim();
 
                 if (!stockMap[name]) {
                     stockMap[name] = {
                         asset_name: name,
+                        raw_code: code,
                         total_qty: 0,
                         total_amt: 0
                     };
+                } else if (code && (!stockMap[name].raw_code || stockMap[name].raw_code === '-')) {
+                    stockMap[name].raw_code = code; // 중복 종목 병합 시 코드가 유효한 것을 선별 보존
                 }
                 stockMap[name].total_qty += qty;
                 stockMap[name].total_amt += amt;
@@ -226,11 +244,21 @@
             tbody.innerHTML = aggregatedStocks.map((stock, index) => {
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
                 const escapedName = encodeURIComponent(stock.asset_name);
+                
+                // 단축 6자리 코드로 역산 진행
+                const shortCode = convertToShortCode(stock.raw_code);
+                // 단축코드가 변환 완료되어 존재하면 종목명 바로 우측에 회색 배지 형태로 렌더링
+                const codeBadgeHtml = shortCode 
+                    ? `<span class="inline-block ml-2 px-1.5 py-0.5 text-[10px] font-mono font-bold bg-slate-100 text-slate-500 rounded border border-slate-200">${shortCode}</span>` 
+                    : '';
 
                 return `
                     <tr class="clickable border-b text-slate-700" onclick="showStockDetail('${escapedName}')">
                         <td class="text-center font-bold text-gray-400">${index + 1}</td>
-                        <td class="font-medium text-blue-600">${stock.asset_name}</td>
+                        <td class="font-medium text-blue-600 flex items-center">
+                            <span>${stock.asset_name}</span>
+                            ${codeBadgeHtml}
+                        </td>
                         <td class="num font-semibold text-slate-600">${Math.round(stock.total_qty).toLocaleString()}</td>
                         <td class="num text-gray-500">${avgPrice.toLocaleString()}</td>
                         <td class="num font-bold text-slate-900">${Math.round(stock.total_amt).toLocaleString()}</td>
@@ -295,6 +323,7 @@
                         <tr style="background-color:#f1f5f9; font-weight:bold;">
                             <th>No.</th>
                             <th>종목명</th>
+                            <th>종목코드</th>
                             <th>보유수량</th>
                             <th>전일종가</th>
                             <th>금액(원)</th>
@@ -305,10 +334,12 @@
 
             aggregatedStocks.forEach((stock, index) => {
                 const avgPrice = stock.total_qty > 0 ? Math.round(stock.total_amt / stock.total_qty) : 0;
+                const shortCode = convertToShortCode(stock.raw_code);
                 excelHtml += `
                     <tr>
                         <td>${index + 1}</td>
                         <td>${stock.asset_name}</td>
+                        <td style="mso-number-format:'@';">${shortCode || '-'}</td>
                         <td>${Math.round(stock.total_qty)}</td>
                         <td>${avgPrice}</td>
                         <td>${Math.round(stock.total_amt)}</td>
@@ -334,16 +365,14 @@
         }
 
         /* ----------------------------------------------------
-         * ★ 새로 추가된 DB 파일 저장소 (Blob/Bytea) 핵심 JS 핸들러 ★
+         * 파일 저장소 (Blob/Bytea) 핵심 JS 핸들러
          * ---------------------------------------------------- */
 
-        // 1. DB에 저장된 파일 목록 불러오기 (Read)
         async function fetchUploadedFiles() {
             const fileTbody = document.getElementById('dbFileTableBody');
             fileTbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 py-3">불러오는 중...</td></tr>`;
             
             try {
-                // file_data 대용량 필드는 제외하고 메타데이터만 1차로 조회 (네트워크 최적화)
                 const res = await fetch(`${SUPABASE_URL}/rest/v1/file_blob_storage?select=file_id,file_name,file_size,mime_type,uploaded_at&order=uploaded_at.desc`, { headers });
                 if (!res.ok) throw new Error("DB 파일 목록 로딩 실패");
                 
@@ -373,7 +402,6 @@
             }
         }
 
-        // 2. 파일을 바이너리화하여 DB에 직접 삽입하기 (Insert)
         async function uploadFileToDB() {
             const fileInput = document.getElementById('dbFileInput');
             const uploadBtn = document.getElementById('uploadBtn');
@@ -388,14 +416,11 @@
 
             const reader = new FileReader();
             
-            // 파일을 ArrayBuffer로 비동기 판독
             reader.onload = async function (e) {
                 try {
                     const arrayBuffer = e.target.result;
                     const bytes = new Uint8Array(arrayBuffer);
                     
-                    // PostgreSQL/Supabase BYTEA 타입 입력을 위해 16진수(Hexadecimal Escape) 형식 변환
-                    // 예: \x54657374...
                     let hexString = '\\x';
                     const len = bytes.length;
                     for (let i = 0; i < len; i++) {
@@ -404,7 +429,7 @@
 
                     const payload = {
                         file_name: file.name,
-                        file_data: hexString, // 바이너리 변환된 hex string 송신
+                        file_data: hexString,
                         file_size: file.size,
                         mime_type: file.type || 'application/octet-stream'
                     };
@@ -425,8 +450,8 @@
                     }
 
                     alert("🎉 파일을 DB 테이블에 직접 성공적으로 업로드 완료했습니다!");
-                    fileInput.value = ""; // 파일 폼 초기화
-                    fetchUploadedFiles(); // 목록 리로드
+                    fileInput.value = "";
+                    fetchUploadedFiles();
                 } catch (err) {
                     console.error("업로드 에러:", err);
                     alert("업로드 실패: " + err.message);
@@ -439,10 +464,8 @@
             reader.readAsArrayBuffer(file);
         }
 
-        // 3. DB에서 바이너리 데이터를 받아와 원래 파일로 복원 및 다운로드 (Download)
         async function downloadFileFromDB(fileId) {
             try {
-                // file_id 기준 단일 파일 데이터(file_data 포함) 조회
                 const res = await fetch(`${SUPABASE_URL}/rest/v1/file_blob_storage?file_id=eq.${fileId}&select=*`, { headers });
                 if (!res.ok) throw new Error("파일 로딩 실패");
 
@@ -452,23 +475,19 @@
                 const fileInfo = result[0];
                 let rawData = fileInfo.file_data;
 
-                // Supabase에서 반환하는 이진 데이터는 보통 '\x...' 포맷의 16진수 문자열로 옵니다.
                 if (typeof rawData === 'string' && rawData.startsWith('\\x')) {
-                    rawData = rawData.substring(2); // '\x' 제거
+                    rawData = rawData.substring(2);
                     const byteArray = new Uint8Array(rawData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
                     
-                    // 바이너리 데이터와 MIME 타입을 브라우저 객체(Blob)로 빌드
                     const blob = new Blob([byteArray], { type: fileInfo.mime_type });
                     const downloadUrl = URL.createObjectURL(blob);
                     
-                    // 가상 엘리먼트를 통한 다운로드 실행
                     const a = document.createElement('a');
                     a.href = downloadUrl;
                     a.download = fileInfo.file_name;
                     document.body.appendChild(a);
                     a.click();
                     
-                    // 리소스 해제
                     document.body.removeChild(a);
                     URL.revokeObjectURL(downloadUrl);
                 } else {
@@ -480,7 +499,6 @@
             }
         }
 
-        // 4. DB 테이블 내 파일 삭제 처리 (Delete)
         async function deleteFileFromDB(fileId) {
             if (!confirm("정말 이 파일을 데이터베이스에서 영구 삭제하시겠습니까?")) return;
 
